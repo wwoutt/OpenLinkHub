@@ -1,14 +1,19 @@
 ## XENEON EDGE free layout
 
-> Fork addition by wwoutt (2026-11-01). Not part of upstream OpenLinkHub.
+> Fork addition (2026-11-01), written by Claude (Anthropic) for wwoutt, see
+> [FORK.md](../../FORK.md). Not part of upstream
+> [OpenLinkHub](https://github.com/jurkovic-nikola/OpenLinkHub) by Nikola Jurković.
 > This project is not an official Corsair product.
 
 Turns the fixed three-column layout of the XENEON EDGE kiosk page
 (`http://127.0.0.1:27003/xeneon`) into a free 24 × 12 grid.
 
 ### Usage
-- Tap the faint pencil button in the bottom-right corner (or open
-  `/xeneon?edit=1`) to enter edit mode.
+- In the OpenLinkHub web UI, click **XENEON EDGE layout** in the sidebar
+  (`/xeneonLayout`, also in the app menu as "XENEON EDGE layout"). It shows the
+  XENEON EDGE screen scaled to fit, editable with the mouse; the XENEON EDGE
+  reloads automatically after saving.
+- On the XENEON EDGE itself, tap the pencil button in the bottom-right corner.
 - **Drag** a widget to move it, drag its edges or corners to **resize** it.
 - **Gear**: change colors, font sizes, title and similar settings. Data sources,
   devices and location stay on the device page ("Advanced settings").

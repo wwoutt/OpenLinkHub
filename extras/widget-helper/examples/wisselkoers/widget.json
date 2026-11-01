@@ -1,7 +1,13 @@
 {
     "name": "Wisselkoers EUR",
     "description": "Euro exchange rates from frankfurter.dev (no API key needed)",
-    "size": {"w": 4, "h": 4},
+    "author": "wwoutt",
+    "license": "GPL-3.0-or-later",
+    "version": "1.0.0",
+    "size": {
+        "w": 4,
+        "h": 4
+    },
     "refresh": 1800,
     "source": {
         "type": "url",

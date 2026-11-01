@@ -9,6 +9,7 @@ RULE="openlinkhub-xeneon-kiosk"
 systemctl --user disable --now "$UNIT" 2>/dev/null
 rm -f "$HOME/.config/systemd/user/$UNIT"
 rm -rf "$HOME/.local/share/openlinkhub-xeneon-kiosk"
+rm -f "$HOME/.local/share/applications/openlinkhub-xeneon-editor.desktop"
 systemctl --user daemon-reload
 
 kwriteconfig6 --file kwinrulesrc --group "$RULE" --key Description --delete

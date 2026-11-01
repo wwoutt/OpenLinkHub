@@ -11,9 +11,12 @@ package xeneonlayout
 import (
 	"OpenLinkHub/src/common"
 	"OpenLinkHub/src/config"
+	"OpenLinkHub/src/dashboard"
 	"OpenLinkHub/src/devices"
 	"OpenLinkHub/src/devices/xeneonedge"
 	"OpenLinkHub/src/logger"
+	"OpenLinkHub/src/templates"
+	"OpenLinkHub/src/version"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -77,8 +80,18 @@ var (
 	customId = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
 )
 
-// RegisterRoutes registers the layout API on the given mux
+// RegisterRoutes registers the layout API, and the editor page when the web UI is enabled
 func RegisterRoutes(mux *http.ServeMux) {
+	if config.GetConfig().Frontend {
+		mux.HandleFunc("/xeneonLayout", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+				return
+			}
+			editorPage(w)
+		})
+	}
+
 	mux.HandleFunc("/api/xeneonLayout", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case http.MethodGet:
@@ -91,6 +104,24 @@ func RegisterRoutes(mux *http.ServeMux) {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
+}
+
+// editorPage serves the layout editor with the regular OpenLinkHub head and sidebar
+func editorPage(w http.ResponseWriter) {
+	web := templates.Web{}
+	web.Title = dashboard.GetDashboard().PageTitle
+	web.Devices = devices.GetDevices()
+	web.BuildInfo = version.GetBuildInfo()
+	web.Dashboard = dashboard.GetDashboard()
+	web.Page = "xeneonLayout"
+
+	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
+	if err := templates.GetTemplate().ExecuteTemplate(w, "xeneon-layout-editor.html", web); err != nil {
+		logger.Log(logger.Fields{"error": err}).Error("Unable to render XENEON EDGE layout editor")
+		http.Error(w, "Unable to serve web content", http.StatusInternalServerError)
+	}
 }
 
 // layoutPath returns the location of the layout file
@@ -203,11 +234,26 @@ func getLayout(w http.ResponseWriter) {
 	}
 
 	send(w, http.StatusOK, response{Status: 1, Data: map[string]interface{}{
-		"serial":  device.Serial,
-		"layout":  layout,
-		"areas":   areas,
-		"widgets": widgets,
+		"serial":   device.Serial,
+		"layout":   layout,
+		"areas":    areas,
+		"widgets":  widgets,
+		"revision": revision(xeneon.DeviceProfile.Path),
 	}})
+}
+
+// revision changes whenever the layout or the widget settings (device profile)
+// change, so the kiosk can reload after an edit made in another browser
+func revision(profilePath string) string {
+	value := ""
+	for _, path := range []string{layoutPath(), profilePath} {
+		if info, err := os.Stat(path); err == nil {
+			value += strconv.FormatInt(info.ModTime().UnixNano(), 36) + "."
+		} else {
+			value += "-."
+		}
+	}
+	return value
 }
 
 // saveLayout stores a new layout

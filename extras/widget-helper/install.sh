@@ -12,6 +12,7 @@ UNIT="openlinkhub-widget-helper.service"
 
 mkdir -p "$APP_DIR" "$UNIT_DIR" "$WIDGET_DIR"
 install -m 755 "$DIR/olh-widget-helper.py" "$APP_DIR/olh-widget-helper.py"
+install -m 644 "$DIR/olh_store.py" "$APP_DIR/olh_store.py"
 install -m 644 "$DIR/$UNIT" "$UNIT_DIR/$UNIT"
 
 # Example widgets, existing widgets are never overwritten

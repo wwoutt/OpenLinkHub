@@ -8,6 +8,7 @@
 #   GET /api/widgets            list of widgets (widget.json)
 #   GET /api/widgets/<id>/html  widget.html
 #   GET /api/widgets/<id>/data  data from the widget source (cached per refresh)
+#   /api/store/...              widget store, see olh_store.py
 #
 # A widget source is either "none", "url" (fetched here, so API keys stay out of
 # the page) or "script" (any program that prints JSON, run as the desktop user).
@@ -21,8 +22,11 @@ import sys
 import threading
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+from olh_store import Store, StoreError
 
 HOST = "127.0.0.1"
 PORT = int(os.environ.get("OLH_WIDGET_PORT", "27004"))
@@ -42,6 +46,7 @@ MAX_TIMEOUT = 60
 cache = {}
 locks = {}
 locks_mutex = threading.Lock()
+store = Store(CONFIG_DIR, SECRETS_FILE, lambda widget_id: cache.pop(widget_id, None))
 
 
 def log(message):
@@ -75,12 +80,22 @@ def public_manifest(widget_id, manifest):
     source = manifest.get("source") if isinstance(manifest.get("source"), dict) else {}
     return {
         "id": widget_id,
+        "modified": modified_time(widget_id),
         "name": str(manifest.get("name") or widget_id),
         "description": str(manifest.get("description") or ""),
         "size": {"w": int(size.get("w") or 4), "h": int(size.get("h") or 3)},
         "refresh": refresh_seconds(manifest),
         "source": str(source.get("type") or "none"),
     }
+
+
+def modified_time(widget_id):
+    """Newest file change in the widget folder, lets the kiosk reload after an edit or update."""
+    path = widget_dir(widget_id)
+    try:
+        return int(max(os.path.getmtime(os.path.join(path, name)) for name in os.listdir(path)))
+    except (OSError, TypeError, ValueError):
+        return 0
 
 
 def refresh_seconds(manifest):
@@ -206,8 +221,8 @@ class Handler(BaseHTTPRequestHandler):
         origin = self.headers.get("Origin")
         if origin in ORIGINS:
             self.send_header("Access-Control-Allow-Origin", origin)
-            self.send_header("Access-Control-Allow-Headers", "X-OLH-Widget")
-            self.send_header("Access-Control-Allow-Methods", "GET")
+            self.send_header("Access-Control-Allow-Headers", "X-OLH-Widget, Content-Type")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST")
             self.send_header("Vary", "Origin")
 
     def send_json(self, code, value):
@@ -241,12 +256,50 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Max-Age", "600")
         self.end_headers()
 
+    def store_call(self, action):
+        try:
+            self.send_json(200, dict({"ok": True}, **action()))
+        except StoreError as e:
+            self.send_json(e.code, {"ok": False, "error": str(e)})
+
+    def do_POST(self):
+        if not self.check_request():
+            self.send_json(403, {"ok": False, "error": "forbidden"})
+            return
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+            body = json.loads(self.rfile.read(min(length, 64 * 1024)) or b"{}")
+        except ValueError:
+            self.send_json(400, {"ok": False, "error": "invalid JSON"})
+            return
+        if not isinstance(body, dict):
+            self.send_json(400, {"ok": False, "error": "invalid JSON"})
+            return
+
+        path = self.path.split("?")[0]
+        if path == "/api/store/install":
+            self.store_call(lambda: store.install(body.get("kind"), body.get("ref"), body.get("commit"),
+                                                  body.get("confirm") is True))
+        elif path == "/api/store/uninstall":
+            self.store_call(lambda: store.uninstall(body.get("id")))
+        else:
+            self.send_json(404, {"ok": False, "error": "not found"})
+
     def do_GET(self):
         if not self.check_request():
             self.send_json(403, {"ok": False, "error": "forbidden"})
             return
 
-        parts = [p for p in self.path.split("?")[0].split("/") if p]
+        url = urllib.parse.urlsplit(self.path)
+        query = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
+        if url.path == "/api/store":
+            self.store_call(lambda: {"widgets": store.list(query.get("kind"), query.get("q"))})
+            return
+        if url.path == "/api/store/preview":
+            self.store_call(lambda: store.preview(query.get("kind"), query.get("ref")))
+            return
+
+        parts = [p for p in url.path.split("/") if p]
         if parts == ["api", "widgets"]:
             self.send_json(200, {"ok": True, "widgets": list_widgets()})
             return

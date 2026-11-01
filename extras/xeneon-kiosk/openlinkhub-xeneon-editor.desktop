@@ -1,0 +1,12 @@
+[Desktop Entry]
+# Author: wwoutt (2026-11-01), part of a fork of OpenLinkHub by Nikola Jurkovic
+# License: GPL-3.0 or later
+Type=Application
+Name=XENEON EDGE layout
+Name[nl]=XENEON EDGE-indeling bewerken
+Comment=Edit the widgets on the XENEON EDGE in your browser (OpenLinkHub)
+Comment[nl]=De widgets op de XENEON EDGE bewerken in je browser (OpenLinkHub)
+Exec=xdg-open "http://127.0.0.1:27003/xeneonLayout"
+Icon=preferences-desktop-display
+Terminal=false
+Categories=Settings;HardwareSettings;

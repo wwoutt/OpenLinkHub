@@ -1,0 +1,14 @@
+{{ define "sidebar-xeneon-layout" }}
+<!-- XENEON EDGE layout editor link, only shown when a XENEON EDGE is connected -->
+<!-- Author: wwoutt (2026-11-01), part of a fork of OpenLinkHub by Nikola Jurkovic -->
+<!-- License: GPL-3.0 or later -->
+{{ range .Devices }}
+{{ if eq .ProductType 995 }}
+<a class="nav-link {{ if eq $.Page "xeneonLayout" }}active{{ end }}" href="/xeneonLayout" data-label="XENEON EDGE layout">
+    <img src="/static/img/icons/icon-lcd.svg" class="sidebar-icon" alt="XENEON EDGE">
+    XENEON EDGE layout
+</a>
+{{ break }}
+{{ end }}
+{{ end }}
+{{ end }}

@@ -11,6 +11,8 @@
 
     const COLUMNS = 24;
     const ROWS = 12;
+    const EDGE_WIDTH = 2560;
+    const EDGE_HEIGHT = 720;
     const MARGIN = 6;
     const API = '/api/xeneonLayout';
 
@@ -24,7 +26,16 @@
             max: 'Maximum value', hideArtwork: 'Hide artwork', hideControls: 'Hide controls', hideForecast: 'Hide forecast',
             showSwap: 'Show swap', weekStart: 'Week starts on', monday: 'Monday', sunday: 'Sunday', hidden: 'hidden',
             custom: 'custom', helperDown: 'Widget helper not reachable', noData: 'No data',
-            noSpace: 'Not enough free space, make room first (hide or shrink a widget)'
+            noSpace: 'Not enough free space, make room first (hide or shrink a widget)',
+            store: 'Store', reviewed: 'Reviewed', community: 'Community (not reviewed)', search: 'Search…',
+            loading: 'Loading…', noResults: 'No widgets found', runsCode: 'runs code', reviewedBadge: 'reviewed',
+            installed: 'installed', updateAvailable: 'update available', nameInUse: 'name in use', view: 'View',
+            install: 'View and install', update: 'Update', reinstall: 'Reinstall', remove: 'Remove',
+            removeConfirm: 'Remove "%s"?', sourceType: 'source', skipped: 'Skipped files',
+            communityWarning: 'Community widgets are not reviewed. Only install widgets you trust, and read the code first.',
+            runsCodeWarning: 'This widget runs code on your computer as your user. Read the code below before installing.',
+            confirmCode: 'I have read the code and trust this widget', confirmFirst: 'Confirm that you read the code first',
+            installedNotice: '"%s" installed, add it with "Add widget"', dashboard: 'Dashboard'
         },
         nl: {
             edit: 'Indeling bewerken', save: 'Opslaan', cancel: 'Annuleren', reset: 'Standaard herstellen', add: 'Widget toevoegen',
@@ -35,7 +46,16 @@
             max: 'Maximale waarde', hideArtwork: 'Albumhoes verbergen', hideControls: 'Knoppen verbergen', hideForecast: 'Voorspelling verbergen',
             showSwap: 'Swap tonen', weekStart: 'Week begint op', monday: 'Maandag', sunday: 'Zondag', hidden: 'verborgen',
             custom: 'eigen widget', helperDown: 'Widget-helper niet bereikbaar', noData: 'Geen gegevens',
-            noSpace: 'Niet genoeg vrije ruimte, maak eerst plaats (verberg of verklein een widget)'
+            noSpace: 'Niet genoeg vrije ruimte, maak eerst plaats (verberg of verklein een widget)',
+            store: 'Winkel', reviewed: 'Gecontroleerd', community: 'Community (niet gecontroleerd)', search: 'Zoeken…',
+            loading: 'Laden…', noResults: 'Geen widgets gevonden', runsCode: 'voert code uit', reviewedBadge: 'gecontroleerd',
+            installed: 'geïnstalleerd', updateAvailable: 'update beschikbaar', nameInUse: 'naam in gebruik', view: 'Bekijken',
+            install: 'Bekijken en installeren', update: 'Bijwerken', reinstall: 'Opnieuw installeren', remove: 'Verwijderen',
+            removeConfirm: '"%s" verwijderen?', sourceType: 'bron', skipped: 'Overgeslagen bestanden',
+            communityWarning: 'Community-widgets zijn niet gecontroleerd. Installeer alleen widgets die je vertrouwt en lees eerst de code.',
+            runsCodeWarning: 'Deze widget voert code uit op je computer, als jouw gebruiker. Lees de code hieronder voor je installeert.',
+            confirmCode: 'Ik heb de code gelezen en vertrouw deze widget', confirmFirst: 'Bevestig eerst dat je de code hebt gelezen',
+            installedNotice: '"%s" geïnstalleerd, voeg hem toe via "Widget toevoegen"', dashboard: 'Dashboard'
         }
     };
     const t = texts[(navigator.language || 'en').toLowerCase().startsWith('nl') ? 'nl' : 'en'];
@@ -94,6 +114,7 @@
     // runs as the desktop user next to OpenLinkHub
     const HELPER = window.location.protocol + '//' + window.location.hostname + ':27004/api/widgets';
     const HELPER_HEADERS = {'X-OLH-Widget': '1'};
+    const STORE = HELPER.replace(/\/widgets$/, '/store');
 
     let grid = null;
     let state = null;       // API data: serial, layout, areas, widgets
@@ -118,6 +139,21 @@
         return fetch(HELPER + path, {headers: HELPER_HEADERS}).then(function (r) {
             if (!r.ok) throw new Error('HTTP ' + r.status);
             return r.json();
+        });
+    }
+
+    // Store calls return {ok, error} also on HTTP errors, so pass those on
+    function storeRequest(path, body) {
+        const options = {headers: Object.assign({}, HELPER_HEADERS)};
+        if (body) {
+            options.method = 'POST';
+            options.headers['Content-Type'] = 'application/json';
+            options.body = JSON.stringify(body);
+        }
+        return fetch(STORE + path, options).then(function (r) {
+            return r.json();
+        }).catch(function () {
+            return {ok: false, error: t.helperDown};
         });
     }
 
@@ -171,16 +207,29 @@
             x: position.x, y: position.y, w: position.w, h: position.h
         };
 
-        helperGet('/' + encodeURIComponent(manifest.id) + '/html').then(function (response) {
+        loadCustomItem(item);
+        return item;
+    }
+
+    // (Re)loads the widget HTML, e.g. after installing an update from the store
+    function loadCustomItem(item) {
+        clearInterval(item.timer);
+        helperGet('/' + encodeURIComponent(item.custom.id) + '/html').then(function (response) {
             item.html = response.html;
         }).catch(function () {
             item.html = '<p style="padding:12px;color:#a1a1a1">' + t.helperDown + '</p>';
         }).then(function () {
-            frame.srcdoc = widgetDocument(item.html);
+            item.frame.srcdoc = widgetDocument(item.html);
             refreshCustom(item);
-            setInterval(function () { refreshCustom(item); }, Math.max(1, manifest.refresh || 60) * 1000);
+            item.timer = setInterval(function () { refreshCustom(item); }, Math.max(1, item.custom.refresh || 60) * 1000);
         });
-        return item;
+    }
+
+    function removeCustomItem(item) {
+        clearInterval(item.timer);
+        if (item.node) grid.removeWidget(item.node, true);
+        item.parts.forEach(function (part) { part.remove(); });
+        delete items[item.key];
     }
 
     // Widgets ask for their data once loaded (also after moving the iframe,
@@ -529,6 +578,7 @@
         const toolbar = el('div', 'olh-toolbar');
         const buttons = [
             {text: t.add, icon: 'bi-plus-lg', action: function (b) { toggleAddMenu(b); }},
+            {text: t.store, icon: 'bi-shop', action: function () { openStore(); }},
             {text: t.reset, icon: 'bi-arrow-counterclockwise', action: function () {
                 if (!window.confirm(t.resetConfirm)) return;
                 fetch(API, {method: 'DELETE'}).then(function () { reload(true); });
@@ -539,6 +589,11 @@
                     .catch(function () { notify(t.saveFailed, 'error'); });
             }}
         ];
+        // In a normal browser window offer the way back (not inside the editor
+        // page, which has the sidebar)
+        if (document.body.classList.contains('olh-scaled') && window.top === window) {
+            buttons.unshift({text: t.dashboard, icon: 'bi-house', action: function () { window.location.href = '/'; }});
+        }
         buttons.forEach(function (definition) {
             const wrapper = el('div', 'olh-toolbar-entry');
             const button = el('button', 'olh-button' + (definition.primary ? ' olh-primary' : ''));
@@ -552,10 +607,191 @@
         document.body.appendChild(toolbar);
     }
 
+    // Widget store: reviewed catalog and unreviewed community widgets (GitHub topic)
+    function openStore() {
+        const backdrop = el('div', 'olh-modal-backdrop');
+        const modal = el('div', 'olh-modal olh-store');
+        backdrop.appendChild(modal);
+        backdrop.addEventListener('click', function (e) { if (e.target === backdrop) backdrop.remove(); });
+        document.body.appendChild(backdrop);
+
+        let kind = 'catalog';
+        let query = '';
+
+        function header(title, back) {
+            modal.innerHTML = '';
+            const bar = el('div', 'olh-store-header');
+            if (back) {
+                const backButton = el('button', 'olh-button', '←');
+                backButton.type = 'button';
+                backButton.addEventListener('click', back);
+                bar.appendChild(backButton);
+            }
+            bar.appendChild(el('h3', 'olh-modal-title', title));
+            const close = el('button', 'olh-button olh-store-close', '×');
+            close.type = 'button';
+            close.addEventListener('click', function () { backdrop.remove(); });
+            bar.appendChild(close);
+            modal.appendChild(bar);
+        }
+
+        function badge(text, type) {
+            return el('span', 'olh-badge' + (type ? ' olh-badge-' + type : ''), text);
+        }
+
+        function message(text, type) {
+            return el('div', 'olh-store-message' + (type ? ' olh-store-' + type : ''), text);
+        }
+
+        function afterChange(installedId, removedId) {
+            return helperGet('').then(function (response) {
+                customWidgets = response.widgets || [];
+                if (removedId && items[customKey(removedId)]) removeCustomItem(items[customKey(removedId)]);
+                const item = installedId && items[customKey(installedId)];
+                if (item) {
+                    item.custom = customManifest(installedId) || item.custom;
+                    loadCustomItem(item);
+                }
+            }).catch(function () {});
+        }
+
+        function showList() {
+            header(t.store);
+            const tabs = el('div', 'olh-store-tabs');
+            [['catalog', t.reviewed], ['community', t.community]].forEach(function (tab) {
+                const button = el('button', 'olh-button' + (kind === tab[0] ? ' olh-primary' : ''), tab[1]);
+                button.type = 'button';
+                button.addEventListener('click', function () { kind = tab[0]; showList(); });
+                tabs.appendChild(button);
+            });
+            const search = el('input', 'olh-store-search');
+            search.type = 'search';
+            search.placeholder = t.search;
+            search.value = query;
+            search.addEventListener('keydown', function (e) {
+                if (e.key === 'Enter') { query = search.value; showList(); }
+            });
+            tabs.appendChild(search);
+            modal.appendChild(tabs);
+
+            if (kind === 'community') modal.appendChild(message(t.communityWarning, 'warning'));
+            const list = el('div', 'olh-store-list');
+            list.appendChild(message(t.loading));
+            modal.appendChild(list);
+
+            storeRequest('?kind=' + kind + '&q=' + encodeURIComponent(query)).then(function (response) {
+                list.innerHTML = '';
+                if (!response.ok) {
+                    list.appendChild(message(response.error, 'error'));
+                    return;
+                }
+                if (response.widgets.length === 0) list.appendChild(message(t.noResults));
+                response.widgets.forEach(function (widget) {
+                    const card = el('div', 'olh-store-card');
+                    const info = el('div', 'olh-store-info');
+                    info.appendChild(el('div', 'olh-store-name', widget.name));
+                    info.appendChild(el('div', 'olh-store-meta',
+                        [widget.author, widget.license, widget.version, widget.stars !== undefined ? '★ ' + widget.stars : '']
+                            .filter(Boolean).join(' · ')));
+                    info.appendChild(el('div', 'olh-store-description', widget.description));
+                    const badges = el('div', 'olh-store-badges');
+                    if (widget.runsCode === true) badges.appendChild(badge(t.runsCode, 'warning'));
+                    if (widget.reviewed) badges.appendChild(badge(t.reviewedBadge, 'ok'));
+                    if (widget.installed) badges.appendChild(badge(widget.update ? t.updateAvailable : t.installed, widget.update ? 'info' : 'ok'));
+                    if (widget.conflict) badges.appendChild(badge(t.nameInUse, 'warning'));
+                    info.appendChild(badges);
+                    card.appendChild(info);
+
+                    const actions = el('div', 'olh-store-actions');
+                    const view = el('button', 'olh-button olh-primary', widget.installed && !widget.update ? t.view : (widget.update ? t.update : t.install));
+                    view.type = 'button';
+                    view.addEventListener('click', function () { showPreview(widget); });
+                    actions.appendChild(view);
+                    if (widget.installed) {
+                        const remove = el('button', 'olh-button', t.remove);
+                        remove.type = 'button';
+                        remove.addEventListener('click', function () {
+                            if (!window.confirm(t.removeConfirm.replace('%s', widget.name))) return;
+                            storeRequest('/uninstall', {id: widget.id}).then(function (result) {
+                                if (!result.ok) { notify(result.error, 'error'); return; }
+                                afterChange(null, widget.id).then(showList);
+                            });
+                        });
+                        actions.appendChild(remove);
+                    }
+                    card.appendChild(actions);
+                    list.appendChild(card);
+                });
+            });
+        }
+
+        function showPreview(widget) {
+            header(widget.name, showList);
+            const body = el('div', 'olh-store-preview');
+            body.appendChild(message(t.loading));
+            modal.appendChild(body);
+
+            storeRequest('/preview?kind=' + kind + '&ref=' + encodeURIComponent(widget.ref)).then(function (preview) {
+                body.innerHTML = '';
+                if (!preview.ok) {
+                    body.appendChild(message(preview.error, 'error'));
+                    return;
+                }
+                const manifest = preview.manifest || {};
+                body.appendChild(el('div', 'olh-store-description', manifest.description || widget.description || ''));
+                body.appendChild(el('div', 'olh-store-meta', [manifest.author || widget.author, manifest.license || widget.license,
+                    manifest.version, t.sourceType + ': ' + preview.source].filter(Boolean).join(' · ')));
+                if (!widget.reviewed) body.appendChild(message(t.communityWarning, 'warning'));
+                if (preview.runsCode) body.appendChild(message(t.runsCodeWarning, 'warning'));
+                if (preview.skipped.length) body.appendChild(message(t.skipped + ': ' + preview.skipped.join(', ')));
+
+                preview.files.forEach(function (file) {
+                    const details = el('details', 'olh-store-file');
+                    details.open = preview.runsCode && /\.(py|sh)$/.test(file.name);
+                    details.appendChild(el('summary', null, file.name + ' (' + Math.ceil(file.size / 1024) + ' KB)'));
+                    if (file.text !== null) details.appendChild(el('pre', null, file.text));
+                    body.appendChild(details);
+                });
+
+                const actions = el('div', 'olh-modal-actions');
+                let confirm = null;
+                if (preview.runsCode) {
+                    const label = el('label', 'olh-field olh-field-check');
+                    label.appendChild(el('span', 'olh-field-label', t.confirmCode));
+                    confirm = el('input');
+                    confirm.type = 'checkbox';
+                    label.appendChild(confirm);
+                    actions.appendChild(label);
+                }
+                const install = el('button', 'olh-button olh-primary', widget.installed && !widget.update ? t.reinstall : (widget.update ? t.update : t.install));
+                install.type = 'button';
+                install.addEventListener('click', function () {
+                    if (confirm && !confirm.checked) {
+                        notify(t.confirmFirst, 'warning');
+                        return;
+                    }
+                    install.disabled = true;
+                    storeRequest('/install', {kind: kind, ref: widget.ref, commit: preview.commit, confirm: !!(confirm && confirm.checked)})
+                        .then(function (result) {
+                            install.disabled = false;
+                            if (!result.ok) { notify(result.error, 'error'); return; }
+                            notify(t.installedNotice.replace('%s', widget.name));
+                            afterChange(result.id).then(showList);
+                        });
+                });
+                actions.appendChild(install);
+                body.appendChild(actions);
+            });
+        }
+
+        showList();
+    }
+
     function setEditMode(enabled) {
         document.body.classList.toggle('olh-editing', enabled);
         grid.setStatic(!enabled);
         if (enabled && !document.querySelector('.olh-toolbar')) buildToolbar();
+        applyEditorScale(document.querySelector('.edge-shell'));
     }
 
     function buildEditToggle() {
@@ -672,12 +908,52 @@
         });
     }
 
+    // Outside the kiosk (any other browser window) the page shows the XENEON
+    // EDGE screen at its real size, scaled down to fit, so the layout can be
+    // edited with a mouse and looks exactly like on the device
+    function applyEditorScale(shell) {
+        const kiosk = Math.abs(window.innerWidth - EDGE_WIDTH) <= 2 && Math.abs(window.innerHeight - EDGE_HEIGHT) <= 2;
+        document.body.classList.toggle('olh-scaled', !kiosk);
+        if (kiosk) {
+            shell.style.cssText = '';
+            return;
+        }
+        // Below the toolbar, which can wrap to more rows in a narrow window
+        const toolbar = document.querySelector('.olh-toolbar');
+        const top = toolbar && toolbar.offsetHeight ? toolbar.offsetTop + toolbar.offsetHeight + 12 : 64;
+        const scale = Math.min(window.innerWidth / EDGE_WIDTH, (window.innerHeight - top - 16) / EDGE_HEIGHT);
+        shell.style.cssText = 'position:absolute;width:' + EDGE_WIDTH + 'px;height:' + EDGE_HEIGHT + 'px;' +
+            'transform:scale(' + scale + ');transform-origin:top left;top:' + top + 'px;' +
+            'left:' + Math.max(0, (window.innerWidth - EDGE_WIDTH * scale) / 2) + 'px;';
+    }
+
+    // The kiosk reloads when the layout, widget settings or custom widgets change
+    // elsewhere (e.g. edited in another browser), unless it is being edited itself
+    function changeSignature(data) {
+        return data.revision + '|' + customWidgets.map(function (w) { return w.id + ':' + w.modified; }).join(',');
+    }
+
+    function watchChanges(data) {
+        const signature = changeSignature(data);
+        setInterval(function () {
+            if (document.body.classList.contains('olh-editing')) return;
+            Promise.all([
+                fetch(API).then(function (r) { return r.json(); }),
+                helperGet('').then(function (r) { customWidgets = r.widgets || []; }).catch(function () {})
+            ]).then(function (results) {
+                if (results[0].status === 1 && changeSignature(results[0].data) !== signature) window.location.reload();
+            }).catch(function () {});
+        }, 5000);
+    }
+
     function init(data) {
         state = data;
         const shell = document.querySelector('.edge-shell');
         const layoutElement = document.querySelector('.edge-layout');
         if (!shell || !layoutElement) return;
 
+        applyEditorScale(shell);
+        window.addEventListener('resize', function () { applyEditorScale(shell); });
         buildItems(layoutElement);
 
         const gridElement = el('div', 'grid-stack olh-grid');
@@ -703,7 +979,9 @@
             margin: MARGIN,
             mode: 'float',
             staticGrid: true,
-            animate: true,
+            // Animate only after the first layout, otherwise a page opened in
+            // the background starts with every widget at its smallest size
+            animate: false,
             draggable: {cancel: '.olh-no-drag'},
             resizable: {handles: 'se,sw,ne,nw,e,w,s,n'}
         }, gridElement);
@@ -718,9 +996,11 @@
         });
         layoutElement.remove();
         document.body.classList.add('olh-layout');
+        setTimeout(function () { grid.setAnimation(true); }, 500);
 
         buildEditToggle();
         if (new URLSearchParams(window.location.search).get('edit') === '1') setEditMode(true);
+        watchChanges(data);
     }
 
     // The window manager makes the kiosk window fullscreen after it opens. The

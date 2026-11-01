@@ -36,6 +36,10 @@ mkdir -p "$APP_DIR" "$UNIT_DIR"
 install -m 755 "$DIR/xeneon-kiosk.sh" "$APP_DIR/xeneon-kiosk.sh"
 install -m 644 "$DIR/$UNIT" "$UNIT_DIR/$UNIT"
 
+# Menu entry to edit the layout in a normal browser window
+mkdir -p "$HOME/.local/share/applications"
+install -m 644 "$DIR/openlinkhub-xeneon-editor.desktop" "$HOME/.local/share/applications/"
+
 # KWin window rule: pin the kiosk window fullscreen to the XENEON EDGE and keep
 # it out of the taskbar, pager and task switcher
 k() { kwriteconfig6 --file kwinrulesrc --group "$RULE" --key "$1" "$2"; }

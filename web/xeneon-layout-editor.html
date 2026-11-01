@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<!-- XENEON EDGE layout editor inside the OpenLinkHub UI (with sidebar) -->
+<!-- Author: wwoutt (2026-11-01), part of a fork of OpenLinkHub by Nikola Jurkovic -->
+<!-- License: GPL-3.0 or later -->
+<html lang="en">
+{{ template "head" . }}
+<body>
+<style>
+    .olh-editor-main {
+        box-sizing: border-box;
+        height: 100vh;
+        display: flex;
+        flex-direction: column;
+    }
+
+    .olh-editor-frame {
+        flex: 1;
+        width: 100%;
+        min-height: 0;
+        border: 0;
+        border-radius: 12px;
+        background: #08090b;
+    }
+</style>
+<div class="container-fluid">
+    <div class="row">
+        {{ template "sidebar" . }}
+
+        <main class="main-content p-4 olh-editor-main">
+            <!-- The kiosk page in edit mode; it scales the XENEON EDGE screen to fit -->
+            <iframe class="olh-editor-frame" src="/xeneon?edit=1" title="XENEON EDGE layout"></iframe>
+        </main>
+    </div>
+</div>
+<script src="/static/js/sidebar.js"></script>
+</body>
+</html>

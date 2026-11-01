@@ -1,6 +1,8 @@
 ## XENEON EDGE kiosk (KDE Plasma 6)
 
-> Fork addition by wwoutt (2026-11-01). Not part of upstream OpenLinkHub.
+> Fork addition (2026-11-01), written by Claude (Anthropic) for wwoutt, see
+> [FORK.md](../../FORK.md). Not part of upstream
+> [OpenLinkHub](https://github.com/jurkovic-nikola/OpenLinkHub) by Nikola Jurković.
 > This project is not an official Corsair product.
 
 Shows the OpenLinkHub kiosk page (`http://127.0.0.1:27003/xeneon`) fullscreen on
