@@ -1,0 +1,15 @@
+# XENEON EDGE kiosk for OpenLinkHub (user service)
+# Author: wwoutt (2026-11-01), part of a fork of OpenLinkHub by Nikola Jurkovic
+# License: GPL-3.0 or later
+[Unit]
+Description=OpenLinkHub XENEON EDGE kiosk
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=%h/.local/share/openlinkhub-xeneon-kiosk/xeneon-kiosk.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical-session.target

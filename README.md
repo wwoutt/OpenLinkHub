@@ -263,3 +263,12 @@ $ docker run --network host --privileged openlinkhub
 ## API
 - OpenLinkHub ships with a built-in HTTP server for device overview and control.
 - Documentation is available at [API Page](api/README.md)
+
+## Fork: wwoutt/OpenLinkHub
+Fork of [OpenLinkHub](https://github.com/jurkovic-nikola/OpenLinkHub) by jurkovic-nikola, licensed under GPL-3.0 like the original. Not an official Corsair product.
+
+Changes in this fork:
+- 2026-11-01: [XENEON EDGE kiosk](extras/xeneon-kiosk/README.md) - shows the kiosk page fullscreen on the XENEON EDGE only, starts automatically (new files in `extras/xeneon-kiosk/`)
+
+Modified upstream files:
+- `README.md`: this section
