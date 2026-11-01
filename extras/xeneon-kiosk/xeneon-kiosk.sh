@@ -44,6 +44,11 @@ isRunning() {
   pgrep -f -- "--user-data-dir=$PROFILE" >/dev/null
 }
 
+# Changes when OpenLinkHub restarts (e.g. after an update), so the page reloads
+serverId() {
+  systemctl show -p MainPID --value OpenLinkHub 2>/dev/null
+}
+
 disableTranslate() {
   # The Translate feature flag does not hide the translate popup, the profile
   # preference does
@@ -79,12 +84,27 @@ startKiosk() {
 
 stopKiosk() {
   pkill -f -- "--user-data-dir=$PROFILE"
+  for _ in 1 2 3 4 5; do
+    isRunning || return 0
+    sleep 1
+  done
+  pkill -KILL -f -- "--user-data-dir=$PROFILE"
 }
 
 trap 'stopKiosk; exit 0' TERM INT
 
+# A Flatpak browser runs outside this service, clean up a previous instance
+stopKiosk
+lastServer=""
+
 while true; do
   if isAvailable; then
+    server="$(serverId)"
+    if [ -n "$lastServer" ] && [ "$server" != "$lastServer" ]; then
+      stopKiosk
+    fi
+    lastServer="$server"
+
     isRunning || startKiosk
   else
     isRunning && stopKiosk

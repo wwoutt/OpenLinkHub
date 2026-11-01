@@ -269,6 +269,12 @@ Fork of [OpenLinkHub](https://github.com/jurkovic-nikola/OpenLinkHub) by jurkovi
 
 Changes in this fork:
 - 2026-11-01: [XENEON EDGE kiosk](extras/xeneon-kiosk/README.md) - shows the kiosk page fullscreen on the XENEON EDGE only, starts automatically (new files in `extras/xeneon-kiosk/`)
+- 2026-11-01: [XENEON EDGE free layout](extras/xeneon-layout/README.md) - drag, resize, hide and configure widgets on the kiosk page (new files: `src/xeneonlayout/`, `static/js/xeneon-layout.js`, `static/css/xeneon-layout.css`, `static/vendor/gridstack/`)
+- 2026-11-01: [Build and deploy scripts](extras/xeneon-layout/README.md#build-and-deploy) for immutable distributions (`extras/build-podman.sh`, `extras/deploy-local.sh`)
 
 Modified upstream files:
 - `README.md`: this section
+- `src/server/server.go`: import and one call to `xeneonlayout.RegisterRoutes(r)` at the end of `setRoutes()`
+- `web/xeneon.html`: one `<script>` line loading `static/js/xeneon-layout.js`
+
+Third-party code added: [GridStack.js](https://github.com/gridstack/gridstack.js) 14.0.0 (MIT) in `static/vendor/gridstack/`, unmodified.

@@ -30,6 +30,7 @@ import (
 	"OpenLinkHub/src/temperatures"
 	"OpenLinkHub/src/templates"
 	"OpenLinkHub/src/version"
+	"OpenLinkHub/src/xeneonlayout"
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
@@ -2985,6 +2986,7 @@ func setRoutes() http.Handler {
 		handleFunc(r, "/login", http.MethodGet, uiLogin)
 		handleFunc(r, "/xeneon", http.MethodGet, uiXeneon)
 	}
+	xeneonlayout.RegisterRoutes(r) // Modified by wwoutt, 2026-11-01: XENEON EDGE free layout API
 	return r
 }
 
