@@ -1,4 +1,6 @@
 # OpenLinkHub interface for Linux
+> **This is the fork [wwoutt/OpenLinkHub](FORK.md)** of [OpenLinkHub](https://github.com/jurkovic-nikola/OpenLinkHub) by Nikola Jurković, with XENEON EDGE extensions written by Claude (Anthropic) - see [FORK.md](FORK.md) for what it is and what it is not. <!-- Modified by wwoutt, 2026-11-01 -->
+
 An open-source Linux interface for iCUE LINK hubs and other Corsair AIOs and hubs.
 Manage RGB lighting, fan speeds, system metrics, as well as keyboards, mice, and headsets via a web dashboard.
 
@@ -265,17 +267,22 @@ $ docker run --network host --privileged openlinkhub
 - Documentation is available at [API Page](api/README.md)
 
 ## Fork: wwoutt/OpenLinkHub
-Fork of [OpenLinkHub](https://github.com/jurkovic-nikola/OpenLinkHub) by jurkovic-nikola, licensed under GPL-3.0 like the original. Not an official Corsair product.
+Fork of [OpenLinkHub](https://github.com/jurkovic-nikola/OpenLinkHub) by jurkovic-nikola (Nikola Jurković), licensed under GPL-3.0 like the original. Not an official Corsair product. The fork additions were written by Claude (Anthropic's AI model, in Claude Code) for wwoutt. What the fork is and is not, credits and install steps: [FORK.md](FORK.md).
 
 Changes in this fork:
 - 2026-11-01: [XENEON EDGE kiosk](extras/xeneon-kiosk/README.md) - shows the kiosk page fullscreen on the XENEON EDGE only, starts automatically (new files in `extras/xeneon-kiosk/`)
-- 2026-11-01: [XENEON EDGE free layout](extras/xeneon-layout/README.md) - drag, resize, hide and configure widgets on the kiosk page (new files: `src/xeneonlayout/`, `static/js/xeneon-layout.js`, `static/css/xeneon-layout.css`, `static/vendor/gridstack/`)
-- 2026-11-01: [Custom widgets](extras/widget-helper/README.md) - your own widgets with internet or Linux data sources, served by a user-level helper (new files in `extras/widget-helper/`; layout support in `src/xeneonlayout/` and `static/js/xeneon-layout.js`)
+- 2026-11-01: [XENEON EDGE free layout](extras/xeneon-layout/README.md) - drag, resize, hide and configure widgets on the kiosk page, also from the browser via the sidebar (new files: `src/xeneonlayout/`, `static/js/xeneon-layout.js`, `static/css/xeneon-layout.css`, `static/vendor/gridstack/`, `web/sidebar-xeneon-layout.html`, `web/xeneon-layout-editor.html`)
+- 2026-11-01: [Custom widgets](extras/widget-helper/README.md) - your own widgets with internet or Linux data sources, served by a user-level helper (new files in `extras/widget-helper/`, including an [AI prompt](extras/widget-helper/AI-WIDGET-PROMPT.md) to generate widgets; layout support in `src/xeneonlayout/` and `static/js/xeneon-layout.js`)
+- 2026-11-01: [Widget store](extras/widget-helper/README.md#store) - install widgets from the reviewed catalog [wwoutt/openlinkhub-widgets](https://github.com/wwoutt/openlinkhub-widgets) or from GitHub repositories with the topic `openlinkhub-widget` (`extras/widget-helper/olh_store.py`, store window in `static/js/xeneon-layout.js`)
 - 2026-11-01: [Build and deploy scripts](extras/xeneon-layout/README.md#build-and-deploy) for immutable distributions (`extras/build-podman.sh`, `extras/deploy-local.sh`)
+- 2026-11-01: `FORK.md` - description of the fork and credits
 
 Modified upstream files:
-- `README.md`: this section
+- `README.md`: one line at the top pointing to `FORK.md`, and this section
 - `src/server/server.go`: import and one call to `xeneonlayout.RegisterRoutes(r)` at the end of `setRoutes()`
 - `web/xeneon.html`: one `<script>` line loading `static/js/xeneon-layout.js`
+- `web/sidebar.html`: one `{{ template "sidebar-xeneon-layout" . }}` line adding the "XENEON EDGE layout" link (template in `web/sidebar-xeneon-layout.html`)
+
+After merging an upstream update, run `extras/check-hooks.sh` to check that these hooks are still present.
 
 Third-party code added: [GridStack.js](https://github.com/gridstack/gridstack.js) 14.0.0 (MIT) in `static/vendor/gridstack/`, unmodified.
