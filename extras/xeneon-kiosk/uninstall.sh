@@ -23,4 +23,4 @@ text = open(path).read()
 open(path, "w").write(re.sub(r"\[" + re.escape(rule) + r"\]\n(?:[^\[].*\n?)*", "", text))
 EOF
 qdbus org.kde.KWin /KWin reconfigure >/dev/null 2>&1
-echo "Removed. The browser profile in ~/.var/app/com.google.Chrome/olh-xeneon is kept."
+echo "Removed. The browser profile in ~/.var/app/com.google.Chrome/olh-xeneon and the touchscreen mapping are kept."

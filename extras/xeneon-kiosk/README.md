@@ -13,6 +13,8 @@ the XENEON EDGE, and only there:
   when OpenLinkHub stops.
 - A KWin window rule pins the window fullscreen to the XENEON EDGE output and
   hides it from the taskbar, pager and task switcher.
+- Touch input goes to the XENEON EDGE only: the touchscreen is mapped to its
+  output at install and at every kiosk start (`xeneon-touch.sh`).
 
 Requirements: KDE Plasma 6, a Chromium based browser (Chromium, Google Chrome or
 Brave, native or Flatpak), `curl`, `python3`.
@@ -25,7 +27,16 @@ Brave, native or Flatpak), `curl`, `python3`.
 Run `install.sh` again after changing the monitor layout, so the window rule
 gets the new position.
 
-For touch input on the right screen, see [XENEON EDGE KDE](../../docs/xeneon-edge-kde.md).
+### Touchscreen
+Without a mapping, KDE spreads the touchscreen over all screens, so a touch on
+the XENEON EDGE lands somewhere else. `xeneon-touch.sh` maps it to the XENEON
+EDGE output right away (through KWin) and saves it in `kcminputrc`, the same
+setting as System Settings > Touchscreen > Target display (see also
+[XENEON EDGE KDE](../../docs/xeneon-edge-kde.md)). You can also run it on its own:
+```bash
+./xeneon-touch.sh            # auto-detects the 2560x720 output
+./xeneon-touch.sh HDMI-A-2   # or pass the output name
+```
 
 ### Uninstall
 ```bash
@@ -41,3 +52,5 @@ Environment variables for the service (`systemctl --user edit openlinkhub-xeneon
 | `OLH_KIOSK_BROWSER` | auto-detected |
 | `OLH_KIOSK_PROFILE` | `~/.var/app/com.google.Chrome/olh-xeneon` |
 | `OLH_KIOSK_INTERVAL` | `5` (seconds) |
+| `OLH_KIOSK_OUTPUT` | auto-detected 2560x720 output, used for the touch mapping |
+| `OLH_TOUCH_NAME`, `OLH_TOUCH_VENDOR`, `OLH_TOUCH_PRODUCT` | `wch.cn TouchScreen`, `10176`, `2137` |

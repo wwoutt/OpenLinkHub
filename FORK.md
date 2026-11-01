@@ -22,7 +22,8 @@ testing of [wwoutt](https://github.com/wwoutt). That means:
 
 ## What it is
 - **XENEON EDGE kiosk**: the OpenLinkHub kiosk page opens fullscreen on the
-  XENEON EDGE only, and starts automatically when you log in
+  XENEON EDGE only, and starts automatically when you log in. The touchscreen is
+  mapped to the XENEON EDGE, so touches land on the right screen
   ([extras/xeneon-kiosk](extras/xeneon-kiosk/README.md)).
 - **Free layout**: drag, resize, hide and configure the widgets on the XENEON
   EDGE, on the touchscreen itself or in the browser via the new

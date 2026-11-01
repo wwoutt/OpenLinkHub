@@ -34,6 +34,7 @@ echo "XENEON EDGE output: $OUTPUT at $X,$Y (${W}x${H})"
 # Launcher and user service
 mkdir -p "$APP_DIR" "$UNIT_DIR"
 install -m 755 "$DIR/xeneon-kiosk.sh" "$APP_DIR/xeneon-kiosk.sh"
+install -m 755 "$DIR/xeneon-touch.sh" "$APP_DIR/xeneon-touch.sh"
 install -m 644 "$DIR/$UNIT" "$UNIT_DIR/$UNIT"
 
 # Menu entry to edit the layout in a normal browser window
@@ -71,6 +72,9 @@ if [[ ",$RULES," != *",$RULE,"* ]]; then
   kwriteconfig6 --file kwinrulesrc --group General --key count "$(echo "$RULES" | tr ',' '\n' | grep -c .)"
 fi
 qdbus org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
+
+# Touch input on the XENEON EDGE only (also redone at every kiosk start)
+"$DIR/xeneon-touch.sh" "$OUTPUT" || true
 
 systemctl --user daemon-reload
 systemctl --user enable --now "$UNIT"

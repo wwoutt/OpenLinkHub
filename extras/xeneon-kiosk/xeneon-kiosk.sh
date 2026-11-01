@@ -93,6 +93,9 @@ stopKiosk() {
 
 trap 'stopKiosk; exit 0' TERM INT
 
+# Map the touchscreen to the XENEON EDGE (output names can change between sessions)
+"$(dirname "$0")/xeneon-touch.sh" "$OLH_KIOSK_OUTPUT" || true
+
 # A Flatpak browser runs outside this service, clean up a previous instance
 stopKiosk
 lastServer=""
