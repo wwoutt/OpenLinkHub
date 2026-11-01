@@ -1,0 +1,14 @@
+# Custom widget helper for the OpenLinkHub XENEON EDGE kiosk (user service)
+# Author: wwoutt (2026-11-01), part of a fork of OpenLinkHub by Nikola Jurkovic
+# License: GPL-3.0 or later
+[Unit]
+Description=OpenLinkHub custom widget helper
+After=default.target
+
+[Service]
+ExecStart=/usr/bin/python3 %h/.local/share/openlinkhub-widget-helper/olh-widget-helper.py
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

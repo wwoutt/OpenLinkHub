@@ -1,0 +1,35 @@
+<!-- Example custom widget: exchange rates (URL source) 
+     Author: wwoutt (2026-11-01), part of a fork of OpenLinkHub by Nikola Jurkovic
+     License: GPL-3.0 or later -->
+<style>
+    .rates { display: flex; flex-direction: column; justify-content: center; height: 100%; gap: 8px; padding: 14px 18px; }
+    .title { color: var(--olh-muted); font-size: 15px; text-transform: uppercase; letter-spacing: .08em; }
+    .row { display: flex; justify-content: space-between; align-items: baseline; }
+    .code { color: var(--olh-muted); font-size: 22px; }
+    .value { font-family: Teko, sans-serif; font-size: 48px; line-height: 1; color: var(--olh-accent); }
+    .date { color: var(--olh-muted); font-size: 12px; }
+</style>
+<div class="rates">
+    <div class="title">1 EUR =</div>
+    <div id="rows"></div>
+    <div class="date" id="date"></div>
+</div>
+<script>
+    function onData(data, info) {
+        const rows = document.getElementById('rows');
+        if (!info.ok || !data || !data.rates) {
+            rows.textContent = info.error || 'Geen gegevens';
+            return;
+        }
+        rows.innerHTML = '';
+        Object.keys(data.rates).forEach(function (code) {
+            const row = document.createElement('div');
+            row.className = 'row';
+            row.innerHTML = '<span class="code"></span><span class="value"></span>';
+            row.children[0].textContent = code;
+            row.children[1].textContent = data.rates[code].toFixed(4);
+            rows.appendChild(row);
+        });
+        document.getElementById('date').textContent = 'Koers van ' + data.date;
+    }
+</script>

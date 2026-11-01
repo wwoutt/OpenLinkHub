@@ -1,0 +1,11 @@
+{
+    "name": "Systeemstatus",
+    "description": "Uptime, load and whether a Bazzite/rpm-ostree update waits for a reboot",
+    "size": {"w": 4, "h": 4},
+    "refresh": 60,
+    "source": {
+        "type": "script",
+        "command": ["python3", "data.py"],
+        "timeout": 15
+    }
+}

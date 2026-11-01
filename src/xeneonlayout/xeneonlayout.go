@@ -19,7 +19,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"sync"
 )
 
@@ -28,14 +30,16 @@ const (
 	maxItems    = 64
 )
 
-// Item is the position of one widget in the grid
+// Item is the position of one widget in the grid: an upstream widget (WidgetId)
+// or a custom widget served by the widget helper (Custom)
 type Item struct {
-	WidgetId int  `json:"widgetId"`
-	X        int  `json:"x"`
-	Y        int  `json:"y"`
-	W        int  `json:"w"`
-	H        int  `json:"h"`
-	Hidden   bool `json:"hidden"`
+	WidgetId int    `json:"widgetId"`
+	Custom   string `json:"custom,omitempty"`
+	X        int    `json:"x"`
+	Y        int    `json:"y"`
+	W        int    `json:"w"`
+	H        int    `json:"h"`
+	Hidden   bool   `json:"hidden"`
 }
 
 // Layout is the saved grid layout
@@ -67,7 +71,11 @@ type response struct {
 	Data    interface{} `json:"data,omitempty"`
 }
 
-var mutex sync.Mutex
+var (
+	mutex sync.Mutex
+	// Same rule as the widget helper uses for widget folder names
+	customId = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,63}$`)
+)
 
 // RegisterRoutes registers the layout API on the given mux
 func RegisterRoutes(mux *http.ServeMux) {
@@ -126,12 +134,21 @@ func (l *Layout) validate() bool {
 		return false
 	}
 
-	seen := make(map[int]bool, len(l.Items))
+	seen := make(map[string]bool, len(l.Items))
 	for _, item := range l.Items {
-		if seen[item.WidgetId] || item.WidgetId < 1 {
+		key := item.Custom
+		if key == "" {
+			if item.WidgetId < 1 {
+				return false
+			}
+			key = strconv.Itoa(item.WidgetId)
+		} else if item.WidgetId != 0 || !customId.MatchString(item.Custom) {
 			return false
 		}
-		seen[item.WidgetId] = true
+		if seen[key] {
+			return false
+		}
+		seen[key] = true
 
 		if item.X < 0 || item.Y < 0 || item.W < 1 || item.H < 1 || item.X+item.W > l.Columns || item.Y+item.H > l.Rows {
 			return false

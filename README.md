@@ -270,6 +270,7 @@ Fork of [OpenLinkHub](https://github.com/jurkovic-nikola/OpenLinkHub) by jurkovi
 Changes in this fork:
 - 2026-11-01: [XENEON EDGE kiosk](extras/xeneon-kiosk/README.md) - shows the kiosk page fullscreen on the XENEON EDGE only, starts automatically (new files in `extras/xeneon-kiosk/`)
 - 2026-11-01: [XENEON EDGE free layout](extras/xeneon-layout/README.md) - drag, resize, hide and configure widgets on the kiosk page (new files: `src/xeneonlayout/`, `static/js/xeneon-layout.js`, `static/css/xeneon-layout.css`, `static/vendor/gridstack/`)
+- 2026-11-01: [Custom widgets](extras/widget-helper/README.md) - your own widgets with internet or Linux data sources, served by a user-level helper (new files in `extras/widget-helper/`; layout support in `src/xeneonlayout/` and `static/js/xeneon-layout.js`)
 - 2026-11-01: [Build and deploy scripts](extras/xeneon-layout/README.md#build-and-deploy) for immutable distributions (`extras/build-podman.sh`, `extras/deploy-local.sh`)
 
 Modified upstream files:

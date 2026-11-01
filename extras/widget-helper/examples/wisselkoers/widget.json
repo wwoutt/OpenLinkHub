@@ -1,0 +1,11 @@
+{
+    "name": "Wisselkoers EUR",
+    "description": "Euro exchange rates from frankfurter.dev (no API key needed)",
+    "size": {"w": 4, "h": 4},
+    "refresh": 1800,
+    "source": {
+        "type": "url",
+        "url": "https://api.frankfurter.dev/v1/latest?from=EUR&to=USD,GBP,CHF",
+        "timeout": 10
+    }
+}

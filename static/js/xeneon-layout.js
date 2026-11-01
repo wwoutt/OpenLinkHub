@@ -22,7 +22,9 @@
             noArea: 'No free area for this widget', advanced: 'Advanced settings', headerText: 'Title', textColor: 'Text color',
             subTextColor: 'Secondary text color', dataColor: 'Accent color', fontSize: 'Font size', subFontSize: 'Secondary font size',
             max: 'Maximum value', hideArtwork: 'Hide artwork', hideControls: 'Hide controls', hideForecast: 'Hide forecast',
-            showSwap: 'Show swap', weekStart: 'Week starts on', monday: 'Monday', sunday: 'Sunday', hidden: 'hidden'
+            showSwap: 'Show swap', weekStart: 'Week starts on', monday: 'Monday', sunday: 'Sunday', hidden: 'hidden',
+            custom: 'custom', helperDown: 'Widget helper not reachable', noData: 'No data',
+            noSpace: 'Not enough free space, make room first (hide or shrink a widget)'
         },
         nl: {
             edit: 'Indeling bewerken', save: 'Opslaan', cancel: 'Annuleren', reset: 'Standaard herstellen', add: 'Widget toevoegen',
@@ -31,7 +33,9 @@
             noArea: 'Geen vrij vak voor deze widget', advanced: 'Geavanceerde instellingen', headerText: 'Titel', textColor: 'Tekstkleur',
             subTextColor: 'Tweede tekstkleur', dataColor: 'Accentkleur', fontSize: 'Lettergrootte', subFontSize: 'Tweede lettergrootte',
             max: 'Maximale waarde', hideArtwork: 'Albumhoes verbergen', hideControls: 'Knoppen verbergen', hideForecast: 'Voorspelling verbergen',
-            showSwap: 'Swap tonen', weekStart: 'Week begint op', monday: 'Maandag', sunday: 'Zondag', hidden: 'verborgen'
+            showSwap: 'Swap tonen', weekStart: 'Week begint op', monday: 'Maandag', sunday: 'Zondag', hidden: 'verborgen',
+            custom: 'eigen widget', helperDown: 'Widget-helper niet bereikbaar', noData: 'Geen gegevens',
+            noSpace: 'Niet genoeg vrije ruimte, maak eerst plaats (verberg of verklein een widget)'
         }
     };
     const t = texts[(navigator.language || 'en').toLowerCase().startsWith('nl') ? 'nl' : 'en'];
@@ -86,10 +90,108 @@
         hideArtwork: 'checkbox', hideControls: 'checkbox', hideForecast: 'checkbox', showSwap: 'checkbox'
     };
 
+    // Custom widgets come from the widget helper (extras/widget-helper), which
+    // runs as the desktop user next to OpenLinkHub
+    const HELPER = window.location.protocol + '//' + window.location.hostname + ':27004/api/widgets';
+    const HELPER_HEADERS = {'X-OLH-Widget': '1'};
+
     let grid = null;
     let state = null;       // API data: serial, layout, areas, widgets
-    let items = {};         // widgetId -> {area, element, hidden, x, y, w, h}
+    let items = {};         // key -> {key, name, area | custom, parts, hidden, x, y, w, h}
+    let customWidgets = []; // widget helper manifests
+    let fontData = null;    // Teko font as data URL for custom widgets
     let hiddenHolder = null;
+
+    function upstreamKey(widgetId) {
+        return 'w' + widgetId;
+    }
+
+    function customKey(id) {
+        return 'c:' + id;
+    }
+
+    function customManifest(id) {
+        return customWidgets.filter(function (manifest) { return manifest.id === id; })[0];
+    }
+
+    function helperGet(path) {
+        return fetch(HELPER + path, {headers: HELPER_HEADERS}).then(function (r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        });
+    }
+
+    // Custom widgets run in a sandboxed iframe with an opaque origin and no
+    // network access (CSP); the page fetches their data and posts it to them
+    function widgetDocument(html) {
+        const font = fontData ? '@font-face{font-family:"Teko";src:url("' + fontData + '") format("truetype");}' : '';
+        // Same color scheme as the kiosk page, otherwise the iframe isn't transparent
+        return '<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="dark">' +
+            '<meta http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'unsafe-inline\'; ' +
+            'style-src \'unsafe-inline\'; img-src data: https:; font-src data:">' +
+            '<style>' + font + ':root{--olh-text:#e6e6e6;--olh-muted:#a1a1a1;--olh-accent:#38bdf8;}' +
+            'html,body{margin:0;height:100%;overflow:hidden;background:transparent;color:var(--olh-text);' +
+            'font-family:system-ui,sans-serif;}</style>' +
+            '<script>window.addEventListener("message",function(e){var d=e.data;' +
+            'if(e.source!==parent||!d||d.type!=="olh-data"||typeof window.onData!=="function")return;' +
+            'try{window.onData(d.data,{ok:d.ok,error:d.error,updated:d.updated});}catch(err){console.error(err);}});' +
+            'document.addEventListener("DOMContentLoaded",function(){parent.postMessage({type:"olh-ready"},"*");});' +
+            '<\/script></head><body>' + html + '</body></html>';
+    }
+
+    function sendData(item) {
+        if (item.frame && item.frame.contentWindow && item.lastData) {
+            item.frame.contentWindow.postMessage(Object.assign({type: 'olh-data'}, item.lastData), '*');
+        }
+    }
+
+    function refreshCustom(item) {
+        helperGet('/' + encodeURIComponent(item.custom.id) + '/data').then(function (data) {
+            item.lastData = data;
+        }).catch(function () {
+            item.lastData = {ok: false, data: null, error: t.helperDown, updated: 0};
+        }).then(function () { sendData(item); });
+    }
+
+    function createCustomItem(manifest, position) {
+        const card = el('div', 'card olh-custom-card');
+        const frame = el('iframe', 'olh-custom-frame');
+        frame.setAttribute('sandbox', 'allow-scripts');
+        frame.setAttribute('title', manifest.name);
+        card.appendChild(frame);
+
+        const item = {
+            key: customKey(manifest.id),
+            name: manifest.name,
+            custom: manifest,
+            element: card,
+            parts: [card],
+            frame: frame,
+            hidden: !!position.hidden,
+            x: position.x, y: position.y, w: position.w, h: position.h
+        };
+
+        helperGet('/' + encodeURIComponent(manifest.id) + '/html').then(function (response) {
+            item.html = response.html;
+        }).catch(function () {
+            item.html = '<p style="padding:12px;color:#a1a1a1">' + t.helperDown + '</p>';
+        }).then(function () {
+            frame.srcdoc = widgetDocument(item.html);
+            refreshCustom(item);
+            setInterval(function () { refreshCustom(item); }, Math.max(1, manifest.refresh || 60) * 1000);
+        });
+        return item;
+    }
+
+    // Widgets ask for their data once loaded (also after moving the iframe,
+    // which reloads it)
+    window.addEventListener('message', function (e) {
+        if (!e.data || e.data.type !== 'olh-ready') return;
+        Object.keys(items).forEach(function (key) {
+            const item = items[key];
+            if (item.frame && item.frame.contentWindow === e.source) sendData(item);
+        });
+    });
 
     function el(tag, className, text) {
         const node = document.createElement(tag);
@@ -174,7 +276,9 @@
         const cellHeight = origin.height / ROWS;
         const saved = {};
         if (state.layout) {
-            state.layout.items.forEach(function (item) { saved[item.widgetId] = item; });
+            state.layout.items.forEach(function (item) {
+                saved[item.custom ? customKey(item.custom) : upstreamKey(item.widgetId)] = item;
+            });
         }
 
         const templates = {};
@@ -186,24 +290,38 @@
             if (!element) return;
             const parts = widgetParts(element, templates);
 
-            let position = saved[area.widgetId];
+            const key = upstreamKey(area.widgetId);
+            let position = saved[key];
             if (!position) {
                 position = measure(parts, origin, cellWidth, cellHeight);
                 position.hidden = false;
             }
-            items[area.widgetId] = {
+            items[key] = {
+                key: key,
+                name: area.name,
                 area: area,
                 element: element,
                 parts: parts,
                 hidden: !!position.hidden,
-                measured: !saved[area.widgetId],
+                measured: !saved[key],
                 x: position.x, y: position.y, w: position.w, h: position.h
             };
         });
 
+        // Custom widgets in the saved layout; kept even when the helper is down
+        // or the widget folder is gone, so their position isn't lost
+        Object.keys(saved).forEach(function (key) {
+            const position = saved[key];
+            if (!position.custom) return;
+            const manifest = customManifest(position.custom) || {id: position.custom, name: position.custom, refresh: 60};
+            items[key] = createCustomItem(manifest, position);
+        });
+
         // Some widgets fill in their content later (weather), so let measured
         // widgets grow down to the next widget, like the upstream column layout
-        const list = Object.keys(items).map(function (id) { return items[id]; });
+        const list = Object.keys(items).map(function (id) { return items[id]; }).filter(function (item) {
+            return !item.hidden;
+        });
         list.forEach(function (item) {
             if (!item.measured) return;
             let bottom = ROWS;
@@ -217,7 +335,7 @@
 
     function itemContent(item) {
         const content = el('div', 'grid-stack-item-content olh-cell edge-panel');
-        if (item.element.classList.contains('card')) {
+        if (item.area && item.element.classList.contains('card')) {
             // Ring widgets expect to sit in a rings grid
             const rings = el('div', 'rings-grid');
             item.parts.forEach(function (part) { rings.appendChild(part); });
@@ -228,18 +346,20 @@
 
         const overlay = el('div', 'olh-overlay');
         const bar = el('div', 'olh-overlay-bar');
-        bar.appendChild(el('span', 'olh-overlay-name', item.area.name));
-        const settings = el('button', 'olh-icon-button olh-no-drag');
-        settings.type = 'button';
-        settings.title = t.settings;
-        settings.innerHTML = '<i class="bi bi-gear"></i>';
-        settings.addEventListener('click', function () { openSettings(item); });
+        bar.appendChild(el('span', 'olh-overlay-name', item.name));
+        if (item.area) {
+            const settings = el('button', 'olh-icon-button olh-no-drag');
+            settings.type = 'button';
+            settings.title = t.settings;
+            settings.innerHTML = '<i class="bi bi-gear"></i>';
+            settings.addEventListener('click', function () { openSettings(item); });
+            bar.appendChild(settings);
+        }
         const hide = el('button', 'olh-icon-button olh-no-drag');
         hide.type = 'button';
         hide.title = t.hide;
         hide.innerHTML = '<i class="bi bi-eye-slash"></i>';
         hide.addEventListener('click', function () { hideItem(item); });
-        bar.appendChild(settings);
         bar.appendChild(hide);
         overlay.appendChild(bar);
         content.appendChild(overlay);
@@ -248,10 +368,10 @@
 
     function addToGrid(item) {
         const node = el('div', 'grid-stack-item');
-        node.setAttribute('gs-id', String(item.area.widgetId));
+        node.setAttribute('gs-id', item.key);
         node.appendChild(itemContent(item));
         grid.el.appendChild(node);
-        const options = {w: item.w, h: item.h, id: String(item.area.widgetId)};
+        const options = {w: item.w, h: item.h, id: item.key};
         if (item.x === undefined) {
             options.autoPosition = true;
         } else {
@@ -272,18 +392,22 @@
     }
 
     function showItem(item) {
-        item.hidden = false;
-        if (!grid.willItFit({x: item.x, y: item.y, w: item.w, h: item.h})) {
+        if (item.x === undefined || !grid.willItFit({x: item.x, y: item.y, w: item.w, h: item.h})) {
+            if (!grid.willItFit({w: item.w, h: item.h, autoPosition: true})) {
+                notify(t.noSpace, 'warning');
+                return false;
+            }
             item.x = undefined;
             item.y = undefined;
         }
+        item.hidden = false;
         addToGrid(item);
         syncPositions();
     }
 
     function syncPositions() {
         grid.save(false).forEach(function (node) {
-            const item = items[parseInt(node.id, 10)];
+            const item = items[node.id];
             if (item) {
                 item.x = node.x; item.y = node.y; item.w = node.w; item.h = node.h;
             }
@@ -297,11 +421,13 @@
             rows: ROWS,
             items: Object.keys(items).map(function (id) {
                 const item = items[id];
-                return {
-                    widgetId: item.area.widgetId,
+                const saved = {
+                    widgetId: item.area ? item.area.widgetId : 0,
                     x: item.x || 0, y: item.y || 0, w: item.w || 1, h: item.h || 1,
                     hidden: item.hidden
                 };
+                if (item.custom) saved.custom = item.custom.id;
+                return saved;
             })
         };
     }
@@ -319,7 +445,8 @@
         window.location.replace(url.toString());
     }
 
-    // Widgets that can be added: hidden ones, and widgets not placed in any area yet
+    // Widgets that can be added: hidden ones, upstream widgets not placed in any
+    // area yet, and custom widgets not in the layout yet
     function addableWidgets() {
         const list = [];
         Object.keys(items).forEach(function (id) {
@@ -330,7 +457,20 @@
         state.widgets.forEach(function (widget) {
             if (!placed[widget.id]) list.push({widget: widget});
         });
+        customWidgets.forEach(function (manifest) {
+            if (!items[customKey(manifest.id)]) list.push({custom: manifest});
+        });
         return list;
+    }
+
+    function addCustomWidget(manifest) {
+        if (!grid.willItFit({w: manifest.size.w, h: manifest.size.h, autoPosition: true})) {
+            notify(t.noSpace, 'warning');
+            return;
+        }
+        const item = createCustomItem(manifest, {w: manifest.size.w, h: manifest.size.h, hidden: true});
+        items[item.key] = item;
+        showItem(item);
     }
 
     // Upstream only knows 11 widget areas, a new widget needs a free one that allows it
@@ -370,12 +510,15 @@
             menu.appendChild(el('div', 'olh-menu-empty', t.noWidgets));
         }
         list.forEach(function (entry) {
-            const name = entry.hidden ? entry.hidden.area.name + ' (' + t.hidden + ')' : entry.widget.name;
+            const name = entry.hidden ? entry.hidden.name + ' (' + t.hidden + ')'
+                : entry.custom ? entry.custom.name + ' (' + t.custom + ')' : entry.widget.name;
             const option = el('button', 'olh-menu-item', name);
             option.type = 'button';
             option.addEventListener('click', function () {
                 menu.remove();
-                if (entry.hidden) showItem(entry.hidden); else addWidget(entry.widget);
+                if (entry.hidden) showItem(entry.hidden);
+                else if (entry.custom) addCustomWidget(entry.custom);
+                else addWidget(entry.widget);
             });
             menu.appendChild(option);
         });
@@ -602,9 +745,24 @@
 
     loadCss('/static/vendor/gridstack/gridstack.min.css');
     loadCss('/static/css/xeneon-layout.css');
+    // Custom widgets are optional: without the helper the page works as before
+    function loadCustomWidgets() {
+        return Promise.all([
+            helperGet('').then(function (response) { customWidgets = response.widgets || []; }),
+            fetch('/static/fonts/teko.ttf').then(function (r) { return r.blob(); }).then(function (blob) {
+                return new Promise(function (resolve) {
+                    const reader = new FileReader();
+                    reader.onload = function () { fontData = reader.result; resolve(); };
+                    reader.readAsDataURL(blob);
+                });
+            })
+        ]).catch(function (error) { console.warn('Custom widgets unavailable', error); });
+    }
+
     Promise.all([
         loadScript('/static/vendor/gridstack/gridstack-all.js'),
         fetch(API).then(function (r) { return r.ok ? r.json() : null; }),
+        loadCustomWidgets(),
         new Promise(function (resolve) {
             if (document.readyState === 'complete') resolve(); else window.addEventListener('load', resolve);
         }).then(waitForStableSize)
