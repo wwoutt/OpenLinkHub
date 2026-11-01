@@ -4,7 +4,7 @@
 # Author: wwoutt (2026-11-01), part of a fork of OpenLinkHub by Nikola Jurkovic
 # License: GPL-3.0 or later
 #
-# Usage: ./xeneon-touch.sh [output-name]   (e.g. HDMI-A-2, default: auto-detect 2560x720)
+# Usage: ./xeneon-touch.sh [output-name]   (e.g. HDMI-A-2, default: auto-detect the 2560x720 output, landscape or portrait)
 #
 # Applies the mapping right away through KWin (D-Bus) and saves it in
 # kcminputrc, the same setting as System Settings > Touchscreen > Target display.
@@ -20,7 +20,7 @@ import json, sys
 want = sys.argv[1] if len(sys.argv) > 1 else ""
 for o in json.load(sys.stdin)["outputs"]:
     s = o.get("size") or {}
-    if o.get("enabled") and (o["name"] == want or (not want and (s.get("width"), s.get("height")) == (2560, 720))):
+    if o.get("enabled") and (o["name"] == want or (not want and sorted((s.get("width") or 0, s.get("height") or 0)) == [720, 2560])):
         print(o["name"])
         break
 ' "$1")"

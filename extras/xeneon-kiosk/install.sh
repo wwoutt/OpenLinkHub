@@ -3,7 +3,7 @@
 # Author: wwoutt (2026-11-01), part of a fork of OpenLinkHub by Nikola Jurkovic
 # License: GPL-3.0 or later
 #
-# Usage: ./install.sh [output-name]   (e.g. HDMI-A-2, default: auto-detect 2560x720)
+# Usage: ./install.sh [output-name]   (e.g. HDMI-A-2, default: auto-detect the 2560x720 output, landscape or portrait)
 
 set -e
 DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -20,7 +20,7 @@ for o in json.load(sys.stdin)["outputs"]:
     if not o.get("enabled"):
         continue
     s, p = o["size"], o["pos"]
-    if o["name"] == want or (not want and (s["width"], s["height"]) == (2560, 720)):
+    if o["name"] == want or (not want and sorted((s["width"], s["height"])) == [720, 2560]):
         print(o["name"], p["x"], p["y"], s["width"], s["height"])
         break
 ' "$1")
