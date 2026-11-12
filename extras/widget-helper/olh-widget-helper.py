@@ -8,10 +8,17 @@
 #   GET /api/widgets            list of widgets (widget.json)
 #   GET /api/widgets/<id>/html  widget.html
 #   GET /api/widgets/<id>/data  data from the widget source (cached per refresh)
+#   POST /api/widgets/<id>/action  runs the widget's action script (2026-11-01)
+#   GET/POST /api/widgets/<id>/settings  values for the widget's "settings" fields
 #   /api/store/...              widget store, see olh_store.py
 #
 # A widget source is either "none", "url" (fetched here, so API keys stay out of
 # the page) or "script" (any program that prints JSON, run as the desktop user).
+# A widget may also declare an "action" script; the widget's JSON request goes to
+# its stdin, so the script decides what the widget is allowed to do.
+# Settings (e.g. a server address and token) are entered with the gear button in
+# edit mode and stored outside the widget folder; secret values never go back
+# to the page.
 # Only the kiosk page origin may call the API; see check_request().
 
 import json
@@ -34,6 +41,9 @@ CONFIG_DIR = os.path.expanduser(os.environ.get(
     "OLH_WIDGET_DIR",
     os.path.join(os.environ.get("XDG_CONFIG_HOME", "~/.config"), "openlinkhub-widgets")))
 SECRETS_FILE = os.path.join(CONFIG_DIR, "secrets.json")
+SETTINGS_DIR = os.path.join(CONFIG_DIR, ".settings")
+SETTING_TYPES = ("text", "url", "secret")
+MAX_SETTING = 4096
 ORIGINS = set(os.environ.get(
     "OLH_WIDGET_ORIGINS", "http://127.0.0.1:27003,http://localhost:27003").split(","))
 HOSTS = {"%s:%d" % (h, PORT) for h in ("127.0.0.1", "localhost")}
@@ -86,7 +96,80 @@ def public_manifest(widget_id, manifest):
         "size": {"w": int(size.get("w") or 4), "h": int(size.get("h") or 3)},
         "refresh": refresh_seconds(manifest),
         "source": str(source.get("type") or "none"),
+        "action": isinstance(manifest.get("action"), dict),
+        "settings": setting_fields(manifest),
     }
+
+
+def setting_fields(manifest):
+    """The "settings" fields of widget.json, checked: [{name, label, type, help, default}]."""
+    fields = []
+    for field in manifest.get("settings") or []:
+        if not isinstance(field, dict) or not re.match(r"^[A-Za-z0-9_]{1,64}$", str(field.get("name") or "")):
+            continue
+        kind = field.get("type") if field.get("type") in SETTING_TYPES else "text"
+        fields.append({
+            "name": field["name"],
+            "label": str(field.get("label") or field["name"]),
+            "type": kind,
+            "help": str(field.get("help") or ""),
+            "default": "" if kind == "secret" else str(field.get("default") or ""),
+        })
+    return fields
+
+
+def settings_file(widget_id):
+    return os.path.join(SETTINGS_DIR, widget_id + ".json")
+
+
+def load_settings(widget_id):
+    try:
+        with open(settings_file(widget_id), encoding="utf-8") as f:
+            values = json.load(f)
+        return values if isinstance(values, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def public_settings(widget_id, manifest):
+    """Current values for the settings form; secrets only say whether they are set."""
+    values = load_settings(widget_id)
+    result = {}
+    for field in setting_fields(manifest):
+        value = values.get(field["name"])
+        if field["type"] == "secret":
+            result[field["name"]] = {"set": bool(value)}
+        else:
+            result[field["name"]] = {"value": str(value) if value is not None else field["default"]}
+    return result
+
+
+def save_settings(widget_id, manifest, new_values):
+    """Stores declared fields only; an empty secret keeps the stored one."""
+    if not isinstance(new_values, dict):
+        raise ValueError("values must be an object")
+    values = load_settings(widget_id)
+    for field in setting_fields(manifest):
+        name = field["name"]
+        if name not in new_values:
+            continue
+        value = new_values[name]
+        if value is None or (field["type"] == "secret" and value == ""):
+            continue
+        if not isinstance(value, str) or len(value) > MAX_SETTING:
+            raise ValueError("invalid value for %s" % name)
+        value = value.strip()
+        if field["type"] == "url" and value and not value.startswith(("http://", "https://")):
+            raise ValueError("%s must start with http:// or https://" % field["label"])
+        values[name] = value
+    os.makedirs(SETTINGS_DIR, mode=0o700, exist_ok=True)
+    path = settings_file(widget_id)
+    temp = path + ".tmp"
+    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(values, f)
+    os.replace(temp, path)
+    cache.pop(widget_id, None)
 
 
 def modified_time(widget_id):
@@ -112,13 +195,17 @@ def timeout_seconds(source):
         return DEFAULT_TIMEOUT
 
 
-def load_secrets():
+def load_secrets(widget_id=None):
+    """secrets.json, with the widget's own settings on top."""
     try:
         with open(SECRETS_FILE, encoding="utf-8") as f:
             secrets = json.load(f)
-        return secrets if isinstance(secrets, dict) else {}
+        secrets = secrets if isinstance(secrets, dict) else {}
     except (OSError, ValueError):
-        return {}
+        secrets = {}
+    if widget_id:
+        secrets.update(load_settings(widget_id))
+    return secrets
 
 
 def fill_secrets(value, secrets):
@@ -136,8 +223,8 @@ def parse_output(raw, content_type=""):
     return text
 
 
-def fetch_url(source):
-    secrets = load_secrets()
+def fetch_url(source, widget_id=None):
+    secrets = load_secrets(widget_id)
     url = fill_secrets(str(source.get("url") or ""), secrets)
     if not url.startswith(("http://", "https://")):
         raise ValueError("source.url must start with http:// or https://")
@@ -152,13 +239,14 @@ def fetch_url(source):
         return parse_output(raw, response.headers.get("Content-Type", ""))
 
 
-def run_script(path, source):
-    command = source.get("command") or ["python3", "data.py"]
+def run_script(path, source, default="data.py", stdin=b""):
+    command = source.get("command") or ["python3", default]
     if isinstance(command, str):
         command = [command]
     command = [str(part) for part in command]
-    env = dict(os.environ, OLH_WIDGET_DIR=path, OLH_SECRETS_FILE=SECRETS_FILE)
-    result = subprocess.run(command, cwd=path, env=env, capture_output=True,
+    env = dict(os.environ, OLH_WIDGET_DIR=path, OLH_SECRETS_FILE=SECRETS_FILE,
+               OLH_SETTINGS_FILE=settings_file(os.path.basename(path)))
+    result = subprocess.run(command, cwd=path, env=env, capture_output=True, input=stdin,
                             timeout=timeout_seconds(source))
     if result.returncode != 0:
         error = result.stderr.decode("utf-8", errors="replace").strip()[-500:]
@@ -185,7 +273,7 @@ def get_data(widget_id, manifest):
         value = {"ok": True, "data": None, "error": None, "updated": int(time.time())}
         try:
             if kind == "url":
-                value["data"] = fetch_url(source)
+                value["data"] = fetch_url(source, widget_id)
             elif kind == "script":
                 value["data"] = run_script(widget_dir(widget_id), source)
             elif kind != "none":
@@ -199,6 +287,27 @@ def get_data(widget_id, manifest):
 
         cache[widget_id] = {"time": time.time(), "value": value}
         return value
+
+
+def run_action(widget_id, manifest, request):
+    """Runs the action script with the widget's request as JSON on stdin."""
+    action = manifest.get("action")
+    if not isinstance(action, dict) or (action.get("type") or "script") != "script":
+        return {"ok": False, "data": None, "error": "widget has no action script"}
+    value = {"ok": True, "data": None, "error": None}
+    with widget_lock(widget_id):
+        try:
+            value["data"] = run_script(widget_dir(widget_id), action, "action.py",
+                                       json.dumps(request).encode("utf-8"))
+        except subprocess.TimeoutExpired:
+            value.update(ok=False, error="action timed out")
+        except (OSError, ValueError, RuntimeError) as e:
+            value.update(ok=False, error=str(e))
+        # Next data request fetches fresh data, so the widget shows the result
+        cache.pop(widget_id, None)
+    if not value["ok"]:
+        log("widget %s action: %s" % (widget_id, value["error"]))
+    return value
 
 
 def list_widgets():
@@ -282,6 +391,25 @@ class Handler(BaseHTTPRequestHandler):
                                                   body.get("confirm") is True))
         elif path == "/api/store/uninstall":
             self.store_call(lambda: store.uninstall(body.get("id")))
+        elif re.match(r"^/api/widgets/[^/]+/settings$", path):
+            widget_id = path.split("/")[3]
+            manifest = load_manifest(widget_id)
+            if manifest is None:
+                self.send_json(404, {"ok": False, "error": "unknown widget"})
+                return
+            try:
+                save_settings(widget_id, manifest, body.get("values"))
+            except (OSError, ValueError) as e:
+                self.send_json(400, {"ok": False, "error": str(e)})
+                return
+            self.send_json(200, {"ok": True, "values": public_settings(widget_id, manifest)})
+        elif re.match(r"^/api/widgets/[^/]+/action$", path):
+            widget_id = path.split("/")[3]
+            manifest = load_manifest(widget_id)
+            if manifest is None:
+                self.send_json(404, {"ok": False, "error": "unknown widget"})
+            else:
+                self.send_json(200, run_action(widget_id, manifest, body.get("data")))
         else:
             self.send_json(404, {"ok": False, "error": "not found"})
 
@@ -320,6 +448,9 @@ class Handler(BaseHTTPRequestHandler):
                 return
             if action == "data":
                 self.send_json(200, get_data(widget_id, manifest))
+                return
+            if action == "settings":
+                self.send_json(200, {"ok": True, "values": public_settings(widget_id, manifest)})
                 return
 
         self.send_json(404, {"ok": False, "error": "not found"})

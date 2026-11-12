@@ -334,6 +334,11 @@ class Store:
         if not self.record(widget_id):
             raise StoreError("only widgets installed from the store can be removed here", 409)
         shutil.rmtree(os.path.join(self.config_dir, widget_id))
+        # Its settings (gear button) may hold a token, don't leave them behind
+        try:
+            os.remove(os.path.join(self.config_dir, ".settings", widget_id + ".json"))
+        except OSError:
+            pass
         self.on_change(widget_id)
         return {"id": widget_id}
 
@@ -371,4 +376,4 @@ def check_contents(contents):
 
 def runs_code(manifest, contents):
     source = manifest.get("source") if isinstance(manifest.get("source"), dict) else {}
-    return source.get("type") == "script" or any(os.path.splitext(n)[1].lower() in CODE_EXTENSIONS for n in contents)
+    return source.get("type") == "script" or "action" in manifest or any(os.path.splitext(n)[1].lower() in CODE_EXTENSIONS for n in contents)

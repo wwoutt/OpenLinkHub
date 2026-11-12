@@ -1,0 +1,491 @@
+<!-- Example custom widget: Home Assistant entities with controls
+     (script source data.py, action script action.py)
+     Author: wwoutt (2026-11-01), part of a fork of OpenLinkHub by Nikola Jurkovic
+     License: GPL-3.0 or later -->
+<style>
+    .ha { display: flex; flex-direction: column; height: 100%; box-sizing: border-box; padding: 12px 14px; gap: 8px; }
+    .bar { display: flex; gap: 8px; }
+    .bar input, .bar select, .row select {
+        min-width: 0; height: 36px; border-radius: 8px; border: 1px solid rgba(255, 255, 255, .12);
+        background: rgba(255, 255, 255, .06); color: var(--olh-text); font: inherit; font-size: 15px; padding: 0 10px;
+    }
+    .bar input { flex: 1; }
+    .bar select { flex: 0 1 40%; }
+    .chips { display: flex; gap: 6px; overflow-x: auto; flex-shrink: 0; scrollbar-width: none; }
+    .chips::-webkit-scrollbar { display: none; }
+    .chip {
+        flex-shrink: 0; height: 32px; padding: 0 12px; border-radius: 16px; border: 0; font: inherit; font-size: 14px;
+        background: rgba(255, 255, 255, .06); color: var(--olh-muted); white-space: nowrap;
+    }
+    .chip.active { background: var(--olh-accent); color: #0b1620; }
+    .list { flex: 1; overflow-y: auto; min-height: 0; display: flex; flex-direction: column; gap: 4px; }
+    .row { border-radius: 10px; background: rgba(255, 255, 255, .04); padding: 8px 10px; }
+    .row.busy { opacity: .55; }
+    .row.off .name { color: var(--olh-muted); }
+    .main { display: flex; align-items: center; gap: 10px; min-height: 40px; }
+    .info { flex: 1; min-width: 0; }
+    .name, .sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .name { font-size: 16px; }
+    .sub { font-size: 13px; color: var(--olh-muted); }
+    .value { font-family: Teko, sans-serif; font-size: 26px; line-height: 1; white-space: nowrap; }
+    .controls { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .btn {
+        min-width: 44px; height: 40px; padding: 0 12px; border-radius: 8px; border: 0; font: inherit; font-size: 15px;
+        background: rgba(255, 255, 255, .1); color: var(--olh-text);
+    }
+    .btn.primary { background: var(--olh-accent); color: #0b1620; }
+    .btn.warn { background: #f59e0b; color: #1a1205; }
+    .btn:disabled { opacity: .4; }
+    .toggle { width: 56px; height: 32px; border-radius: 16px; border: 0; background: rgba(255, 255, 255, .15); position: relative; padding: 0; }
+    .toggle::after {
+        content: ""; position: absolute; top: 4px; left: 4px; width: 24px; height: 24px; border-radius: 50%;
+        background: var(--olh-text); transition: left .15s;
+    }
+    .toggle.on { background: var(--olh-accent); }
+    .toggle.on::after { left: 28px; }
+    .toggle:disabled { opacity: .4; }
+    .detail { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 8px; }
+    .detail label { font-size: 13px; color: var(--olh-muted); }
+    .detail input[type=range] { flex: 1; min-width: 120px; height: 32px; accent-color: var(--olh-accent); }
+    .status { flex-shrink: 0; font-size: 12px; color: var(--olh-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .status.error { color: #f87171; }
+    .empty { color: var(--olh-muted); padding: 12px 4px; }
+</style>
+<div class="ha">
+    <div class="bar">
+        <input id="search" type="search" placeholder="Zoeken" autocomplete="off">
+        <select id="area"><option value="">Alle ruimtes</option></select>
+    </div>
+    <div class="chips" id="chips"></div>
+    <div class="list" id="list"><div class="empty">Verbinden met Home Assistant...</div></div>
+    <div class="status" id="status"></div>
+</div>
+<script>
+    const DOMAINS = {
+        light: 'Lampen', switch: 'Schakelaars', input_boolean: 'Schakelaars (helper)', fan: 'Ventilatoren',
+        cover: 'Rolluiken', valve: 'Kranen', lock: 'Sloten', climate: 'Klimaat', media_player: 'Media',
+        button: 'Knoppen', input_button: 'Knoppen (helper)', scene: 'Scènes', script: 'Scripts',
+        automation: 'Automatiseringen', number: 'Getallen', input_number: 'Getallen (helper)',
+        select: 'Keuzes', input_select: 'Keuzes (helper)', vacuum: 'Stofzuigers', lawn_mower: 'Grasmaaiers',
+        siren: 'Sirenes', humidifier: 'Luchtbevochtigers', sensor: 'Sensoren', binary_sensor: 'Binaire sensoren',
+        person: 'Personen', device_tracker: 'Apparaten', sun: 'Zon', weather: 'Weer', calendar: 'Agenda',
+        alarm_control_panel: 'Alarm', water_heater: 'Boilers', input_text: 'Tekst', input_datetime: 'Datum/tijd',
+        timer: 'Timers', counter: 'Tellers', remote: 'Afstandsbedieningen', todo: 'Takenlijsten'
+    };
+    const STATES = {
+        on: 'Aan', off: 'Uit', unavailable: 'Onbeschikbaar', unknown: 'Onbekend', open: 'Open', closed: 'Dicht',
+        opening: 'Gaat open', closing: 'Gaat dicht', locked: 'Vergrendeld', unlocked: 'Ontgrendeld',
+        locking: 'Vergrendelt', unlocking: 'Ontgrendelt', jammed: 'Vastgelopen', home: 'Thuis', not_home: 'Afwezig',
+        playing: 'Speelt', paused: 'Gepauzeerd', idle: 'Inactief', standby: 'Stand-by', heat: 'Verwarmen',
+        cool: 'Koelen', auto: 'Auto', heat_cool: 'Verwarmen/koelen', dry: 'Drogen', fan_only: 'Ventilator',
+        cleaning: 'Reinigt', docked: 'Gedockt', returning: 'Keert terug', mowing: 'Maait',
+        above_horizon: 'Boven horizon', below_horizon: 'Onder horizon'
+    };
+    const TOGGLE_DOMAINS = ['light', 'switch', 'input_boolean', 'fan', 'automation', 'siren', 'humidifier'];
+    const CONTROL_DOMAINS = TOGGLE_DOMAINS.concat(['button', 'input_button', 'scene', 'script', 'cover', 'valve',
+        'lock', 'climate', 'number', 'input_number', 'select', 'input_select', 'media_player', 'vacuum', 'lawn_mower']);
+
+    const filter = {domain: 'controls', area: '', query: '', unavailable: false};
+    let entities = [];
+    const rows = new Map(); // entity_id -> {element, signature, open, busyUntil}
+    let actionError = '';
+    let lastInfo = null;
+
+    const list = document.getElementById('list');
+
+    function make(tag, className, text) {
+        const node = document.createElement(tag);
+        if (className) node.className = className;
+        if (text !== undefined && text !== null) node.textContent = text;
+        return node;
+    }
+
+    function domainOf(entity) {
+        return entity.id.split('.')[0];
+    }
+
+    // Scenes and buttons stay "unknown" until first used, so only this state blocks controls
+    function unavailable(entity) {
+        return entity.state === 'unavailable';
+    }
+
+    function formatState(entity) {
+        const state = String(entity.state);
+        if (/^\d{4}-\d\d-\d\dT\d\d:\d\d/.test(state)) {
+            const date = new Date(state);
+            if (!isNaN(date)) {
+                return date.toLocaleString('nl-BE', {day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'});
+            }
+        }
+        if (state !== '' && !isNaN(Number(state))) {
+            const value = Number(state);
+            const text = Number.isInteger(value) ? String(value) : String(Math.round(value * 100) / 100);
+            return entity.unit ? text + ' ' + entity.unit : text;
+        }
+        return STATES[state] || (entity.unit ? state + ' ' + entity.unit : state);
+    }
+
+    // Sends a service call through the widget's action script
+    function act(entity, service, data) {
+        const row = rows.get(entity.id);
+        if (row) {
+            row.busyUntil = Date.now() + 4000;
+            row.element.classList.add('busy');
+        }
+        return olhAction({entity_id: entity.id, service: service, data: data || {}}).then(function (result) {
+            actionError = result.ok ? '' : (entity.name + ': ' + (result.error || 'mislukt'));
+            if (!result.ok && row) {
+                row.busyUntil = 0;
+                row.element.classList.remove('busy');
+            }
+            showStatus();
+        });
+    }
+
+    function button(label, onClick, className) {
+        const node = make('button', 'btn' + (className ? ' ' + className : ''), label);
+        node.addEventListener('click', function (e) {
+            e.stopPropagation();
+            onClick(node);
+        });
+        return node;
+    }
+
+    function toggle(entity) {
+        const node = make('button', 'toggle' + (entity.state === 'on' ? ' on' : ''));
+        node.setAttribute('aria-label', entity.state === 'on' ? 'Uitzetten' : 'Aanzetten');
+        node.addEventListener('click', function (e) {
+            e.stopPropagation();
+            act(entity, 'toggle');
+        });
+        return node;
+    }
+
+    function slider(label, min, max, step, value, onChange) {
+        const wrap = make('div', 'detail');
+        const caption = make('label', null, label + ': ' + value);
+        const input = make('input');
+        input.type = 'range';
+        input.min = min;
+        input.max = max;
+        input.step = step;
+        input.value = value;
+        input.addEventListener('click', function (e) { e.stopPropagation(); });
+        input.addEventListener('input', function () { caption.textContent = label + ': ' + input.value; });
+        input.addEventListener('change', function () { onChange(Number(input.value)); });
+        wrap.append(caption, input);
+        return wrap;
+    }
+
+    function chooser(options, current, onChange) {
+        const select = make('select');
+        options.forEach(function (option) {
+            const node = make('option', null, STATES[option] || option);
+            node.value = option;
+            select.appendChild(node);
+        });
+        select.value = current;
+        select.addEventListener('click', function (e) { e.stopPropagation(); });
+        select.addEventListener('change', function () { onChange(select.value); });
+        return select;
+    }
+
+    function stepper(entity, value, step, min, max, service, field, unit) {
+        const wrap = make('div', 'controls');
+        const change = function (delta) {
+            let next = Math.round((Number(value) + delta) / step) * step;
+            if (typeof min === 'number') next = Math.max(min, next);
+            if (typeof max === 'number') next = Math.min(max, next);
+            const data = {};
+            data[field] = Number(next.toFixed(3));
+            act(entity, service, data);
+        };
+        wrap.append(button('−', function () { change(-step); }),
+            make('span', 'value', value === undefined || value === null ? '--' : value + (unit || '')),
+            button('+', function () { change(step); }));
+        return wrap;
+    }
+
+    // Returns {inline, detail} control nodes for an entity (both may be null)
+    function controls(entity) {
+        const domain = domainOf(entity);
+        const a = entity.attrs || {};
+        let inline = null;
+        let detail = null;
+
+        if (TOGGLE_DOMAINS.indexOf(domain) >= 0) inline = toggle(entity);
+        if (domain === 'light' && (a.supported_color_modes || []).some(function (m) { return m !== 'onoff'; })) {
+            const pct = a.brightness ? Math.round(a.brightness / 2.55) : 0;
+            detail = slider('Helderheid %', 1, 100, 1, pct || 1, function (v) { act(entity, 'turn_on', {brightness_pct: v}); });
+        } else if (domain === 'fan' && typeof a.percentage === 'number') {
+            detail = slider('Snelheid %', 0, 100, 1, a.percentage, function (v) { act(entity, 'set_percentage', {percentage: v}); });
+        } else if (domain === 'automation') {
+            detail = make('div', 'detail');
+            detail.appendChild(button('Nu uitvoeren', function () { act(entity, 'trigger'); }));
+        } else if (domain === 'button' || domain === 'input_button') {
+            inline = button('Druk', function () { act(entity, 'press'); }, 'primary');
+        } else if (domain === 'scene') {
+            inline = button('Activeer', function () { act(entity, 'turn_on'); }, 'primary');
+        } else if (domain === 'script') {
+            inline = entity.state === 'on'
+                ? button('Stop', function () { act(entity, 'turn_off'); })
+                : button('Start', function () { act(entity, 'turn_on'); }, 'primary');
+        } else if (domain === 'cover') {
+            inline = make('div', 'controls');
+            inline.append(button('▲', function () { act(entity, 'open_cover'); }),
+                button('■', function () { act(entity, 'stop_cover'); }),
+                button('▼', function () { act(entity, 'close_cover'); }));
+            if (typeof a.current_position === 'number') {
+                detail = slider('Positie %', 0, 100, 1, a.current_position, function (v) { act(entity, 'set_cover_position', {position: v}); });
+            }
+        } else if (domain === 'valve') {
+            inline = make('div', 'controls');
+            inline.append(button('Open', function () { act(entity, 'open_valve'); }),
+                button('Dicht', function () { act(entity, 'close_valve'); }));
+        } else if (domain === 'lock') {
+            // Unlocking asks for a second tap
+            inline = entity.state === 'locked'
+                ? button('Ontgrendel', function (node) {
+                    if (node.dataset.confirm) return act(entity, 'unlock');
+                    node.dataset.confirm = '1';
+                    node.textContent = 'Zeker?';
+                    node.classList.add('warn');
+                    setTimeout(function () { delete node.dataset.confirm; node.textContent = 'Ontgrendel'; node.classList.remove('warn'); }, 3000);
+                })
+                : button('Vergrendel', function () { act(entity, 'lock'); }, 'primary');
+        } else if (domain === 'climate') {
+            if (typeof a.temperature === 'number') {
+                inline = stepper(entity, a.temperature, a.target_temp_step || 0.5, a.min_temp, a.max_temp, 'set_temperature', 'temperature', '°');
+            }
+            if (Array.isArray(a.hvac_modes) && a.hvac_modes.length) {
+                detail = make('div', 'detail');
+                detail.append(make('label', null, 'Modus'),
+                    chooser(a.hvac_modes, entity.state, function (v) { act(entity, 'set_hvac_mode', {hvac_mode: v}); }));
+            }
+        } else if (domain === 'number' || domain === 'input_number') {
+            const step = Number(a.step) || 1;
+            const value = Number(entity.state);
+            inline = stepper(entity, isNaN(value) ? null : value, step, a.min, a.max, 'set_value', 'value', entity.unit ? ' ' + entity.unit : '');
+            if (typeof a.min === 'number' && typeof a.max === 'number' && !isNaN(value)) {
+                detail = slider('Waarde', a.min, a.max, step, value, function (v) { act(entity, 'set_value', {value: v}); });
+            }
+        } else if (domain === 'select' || domain === 'input_select') {
+            if (Array.isArray(a.options) && a.options.length) {
+                inline = chooser(a.options, entity.state, function (v) { act(entity, 'select_option', {option: v}); });
+            }
+        } else if (domain === 'media_player') {
+            inline = make('div', 'controls');
+            inline.append(button('⏮', function () { act(entity, 'media_previous_track'); }),
+                button(entity.state === 'playing' ? '⏸' : '▶', function () { act(entity, 'media_play_pause'); }),
+                button('⏭', function () { act(entity, 'media_next_track'); }));
+            detail = make('div', 'detail');
+            detail.appendChild(button(entity.state === 'off' ? 'Aanzetten' : 'Uitzetten', function () { act(entity, 'toggle'); }));
+            if (typeof a.volume_level === 'number') {
+                detail.appendChild(slider('Volume %', 0, 100, 1, Math.round(a.volume_level * 100),
+                    function (v) { act(entity, 'volume_set', {volume_level: v / 100}); }));
+            }
+        } else if (domain === 'vacuum') {
+            inline = make('div', 'controls');
+            inline.append(button('Start', function () { act(entity, 'start'); }, 'primary'),
+                button('Pauze', function () { act(entity, 'pause'); }),
+                button('Dock', function () { act(entity, 'return_to_base'); }));
+        } else if (domain === 'lawn_mower') {
+            inline = make('div', 'controls');
+            inline.append(button('Maaien', function () { act(entity, 'start_mowing'); }, 'primary'),
+                button('Pauze', function () { act(entity, 'pause'); }),
+                button('Dock', function () { act(entity, 'dock'); }));
+        }
+        if (inline === null && CONTROL_DOMAINS.indexOf(domain) < 0) {
+            inline = make('span', 'value', formatState(entity));
+        }
+        return {inline: inline, detail: detail};
+    }
+
+    function subText(entity) {
+        const domain = domainOf(entity);
+        const a = entity.attrs || {};
+        const parts = [];
+        if (CONTROL_DOMAINS.indexOf(domain) >= 0 && domain !== 'select' && domain !== 'input_select') {
+            if (domain === 'button' || domain === 'input_button' || domain === 'scene') {
+                parts.push(/^\d{4}-/.test(entity.state) ? 'laatst ' + formatState(entity) : formatState(entity));
+            } else if (domain === 'climate' && typeof a.current_temperature === 'number') {
+                parts.push(formatState(entity) + ' · nu ' + a.current_temperature + '°');
+            } else if (domain === 'media_player' && a.media_title) {
+                parts.push([a.media_artist, a.media_title].filter(Boolean).join(' – '));
+            } else {
+                parts.push(formatState(entity));
+            }
+        }
+        if (entity.area) parts.push(entity.area);
+        return parts.join(' · ') || entity.id;
+    }
+
+    function buildRow(entity, row) {
+        const element = row.element;
+        element.textContent = '';
+        element.className = 'row' + (entity.state === 'off' || unavailable(entity) ? ' off' : '');
+        const main = make('div', 'main');
+        const info = make('div', 'info');
+        info.append(make('div', 'name', entity.name), make('div', 'sub', subText(entity)));
+        main.appendChild(info);
+        const parts = controls(entity);
+        if (parts.inline) main.appendChild(parts.inline);
+        element.appendChild(main);
+        if (parts.detail && row.open) element.appendChild(parts.detail);
+        row.hasDetail = !!parts.detail;
+        if (unavailable(entity)) {
+            element.querySelectorAll('button, select, input').forEach(function (node) { node.disabled = true; });
+        }
+    }
+
+    function rowFor(entity) {
+        let row = rows.get(entity.id);
+        if (!row) {
+            row = {element: make('div', 'row'), signature: '', open: false, busyUntil: 0, entity: entity};
+            row.element.addEventListener('click', function () {
+                if (!row.hasDetail) return;
+                row.open = !row.open;
+                buildRow(row.entity, row);
+            });
+            rows.set(entity.id, row);
+        }
+        row.entity = entity;
+        const signature = JSON.stringify(entity);
+        // Don't rebuild while the user is using a slider or list in this row
+        const inUse = row.element.contains(document.activeElement) && document.activeElement !== document.body;
+        if (signature !== row.signature && !inUse) {
+            const wasBusy = row.busyUntil > Date.now();
+            row.signature = signature;
+            row.busyUntil = 0;
+            buildRow(entity, row);
+            if (wasBusy) row.element.classList.remove('busy');
+        } else if (row.busyUntil && row.busyUntil <= Date.now()) {
+            row.busyUntil = 0;
+            row.element.classList.remove('busy');
+        }
+        return row;
+    }
+
+    function matches(entity) {
+        const domain = domainOf(entity);
+        if (filter.domain === 'controls' && CONTROL_DOMAINS.indexOf(domain) < 0) return false;
+        if (filter.domain !== 'controls' && filter.domain !== 'all' && filter.domain !== domain) return false;
+        if (filter.area && entity.area !== filter.area) return false;
+        if (!filter.unavailable && unavailable(entity)) return false;
+        if (filter.query) {
+            const text = (entity.name + ' ' + entity.id + ' ' + (entity.area || '')).toLowerCase();
+            if (text.indexOf(filter.query) < 0) return false;
+        }
+        return true;
+    }
+
+    function renderList() {
+        const shown = entities.filter(matches);
+        const nodes = shown.map(function (entity) { return rowFor(entity).element; });
+        if (!nodes.length) {
+            nodes.push(make('div', 'empty', entities.length ? 'Niets gevonden' : 'Geen entiteiten'));
+        }
+        list.replaceChildren.apply(list, nodes);
+        return shown.length;
+    }
+
+    function renderChips() {
+        const counts = {};
+        entities.forEach(function (entity) {
+            const domain = domainOf(entity);
+            counts[domain] = (counts[domain] || 0) + 1;
+        });
+        const domains = Object.keys(counts).sort(function (x, y) {
+            return (DOMAINS[x] || x).localeCompare(DOMAINS[y] || y, 'nl');
+        });
+        const chips = [['controls', 'Bedienbaar'], ['all', 'Alles']].concat(domains.map(function (domain) {
+            return [domain, (DOMAINS[domain] || domain) + ' ' + counts[domain]];
+        }));
+        chips.push(['unavailable', filter.unavailable ? 'Onbeschikbaar: tonen' : 'Onbeschikbaar: verbergen']);
+        const container = document.getElementById('chips');
+        const scroll = container.scrollLeft;
+        container.replaceChildren.apply(container, chips.map(function (chip) {
+            const active = chip[0] === 'unavailable' ? filter.unavailable : filter.domain === chip[0];
+            const node = make('button', 'chip' + (active ? ' active' : ''), chip[1]);
+            node.addEventListener('click', function () {
+                if (chip[0] === 'unavailable') filter.unavailable = !filter.unavailable;
+                else filter.domain = chip[0];
+                render();
+            });
+            return node;
+        }));
+        container.scrollLeft = scroll;
+    }
+
+    function renderAreas(areas) {
+        const select = document.getElementById('area');
+        const current = select.value;
+        const options = [make('option', null, 'Alle ruimtes')];
+        options[0].value = '';
+        areas.forEach(function (area) {
+            const option = make('option', null, area);
+            option.value = area;
+            options.push(option);
+        });
+        if (document.activeElement !== select) {
+            select.replaceChildren.apply(select, options);
+            select.value = areas.indexOf(current) >= 0 ? current : '';
+            filter.area = select.value;
+        }
+    }
+
+    // The helper puts "script exited with 1: " before what the script reported
+    function errorText(error) {
+        const text = String(error || 'Geen verbinding').replace(/^script exited with \d+: /, '');
+        return /^no token set/.test(text) ? 'Geen token ingesteld: open de bewerkmodus en tik op het radertje van deze widget' : text;
+    }
+
+    function showStatus(count) {
+        const status = document.getElementById('status');
+        if (typeof count === 'number') status.dataset.count = count;
+        if (actionError) {
+            status.className = 'status error';
+            status.textContent = actionError;
+        } else if (lastInfo && !lastInfo.ok) {
+            status.className = 'status error';
+            status.textContent = errorText(lastInfo.error);
+        } else {
+            status.className = 'status';
+            const time = lastInfo && lastInfo.updated
+                ? new Date(lastInfo.updated * 1000).toLocaleTimeString('nl-BE') : '--';
+            status.textContent = 'Bijgewerkt ' + time + ' · ' + (status.dataset.count || 0) + ' van ' + entities.length + ' entiteiten';
+        }
+    }
+
+    function render() {
+        renderChips();
+        showStatus(renderList());
+    }
+
+    function onData(data, info) {
+        lastInfo = info;
+        if (info.ok && data && Array.isArray(data.entities)) {
+            entities = data.entities.filter(function (entity) {
+                return entity && typeof entity.id === 'string' && entity.id.indexOf('.') > 0;
+            }).map(function (entity) {
+                return Object.assign({}, entity, {name: String(entity.name || entity.id), state: String(entity.state)});
+            }).sort(function (x, y) {
+                return x.name.localeCompare(y.name, 'nl');
+            });
+            renderAreas(Array.isArray(data.areas) ? data.areas.map(String) : []);
+            render();
+        } else if (!info.ok) {
+            if (!entities.length) list.replaceChildren(make('div', 'empty', errorText(info.error)));
+            showStatus();
+        }
+    }
+
+    document.getElementById('search').addEventListener('input', function (e) {
+        filter.query = e.target.value.trim().toLowerCase();
+        render();
+    });
+    document.getElementById('area').addEventListener('change', function (e) {
+        filter.area = e.target.value;
+        render();
+    });
+</script>

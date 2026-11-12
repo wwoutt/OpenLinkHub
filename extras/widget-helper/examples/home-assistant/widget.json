@@ -1,0 +1,43 @@
+{
+    "name": "Home Assistant",
+    "description": "All Home Assistant entities: read sensors and use lights, switches, buttons, scenes, scripts, covers, climate and more. Contacts only your own Home Assistant server (set with the gear button, default http://127.0.0.1:8123).",
+    "author": "wwoutt",
+    "license": "GPL-3.0-or-later",
+    "version": "1.0.0",
+    "size": {
+        "w": 6,
+        "h": 12
+    },
+    "refresh": 5,
+    "source": {
+        "type": "script",
+        "command": [
+            "python3",
+            "data.py"
+        ],
+        "timeout": 15
+    },
+    "action": {
+        "type": "script",
+        "command": [
+            "python3",
+            "action.py"
+        ],
+        "timeout": 15
+    },
+    "settings": [
+        {
+            "name": "HA_URL",
+            "label": "Home Assistant-server",
+            "type": "url",
+            "default": "http://127.0.0.1:8123",
+            "help": "Adres van je Home Assistant, bijvoorbeeld http://homeassistant.local:8123"
+        },
+        {
+            "name": "HA_TOKEN",
+            "label": "Token (lange levensduur)",
+            "type": "secret",
+            "help": "Home Assistant > je profiel > Beveiliging > Tokens voor lange levensduur > Token aanmaken"
+        }
+    ]
+}

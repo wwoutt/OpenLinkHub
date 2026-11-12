@@ -290,6 +290,8 @@ body.olh-scaled .edge-shell {
 
 .olh-field input[type="text"],
 .olh-field input[type="number"],
+.olh-field input[type="url"],
+.olh-field input[type="password"],
 .olh-field select {
     min-height: 38px;
     padding: 4px 8px;
@@ -306,6 +308,22 @@ body.olh-scaled .edge-shell {
     border: 1px solid rgba(255, 255, 255, 0.2);
     border-radius: 6px;
     background: #111216;
+}
+
+/* Custom widget settings: one field per row, with help text */
+.olh-modal-fields-single {
+    grid-template-columns: minmax(0, 1fr);
+    min-width: min(480px, 80vw);
+}
+
+.olh-field-help {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.6);
+}
+
+.olh-field-error {
+    margin-top: 8px;
+    color: #f87171;
 }
 
 .olh-field input[type="checkbox"] {

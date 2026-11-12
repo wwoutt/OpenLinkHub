@@ -35,7 +35,8 @@
             communityWarning: 'Community widgets are not reviewed. Only install widgets you trust, and read the code first.',
             runsCodeWarning: 'This widget runs code on your computer as your user. Read the code below before installing.',
             confirmCode: 'I have read the code and trust this widget', confirmFirst: 'Confirm that you read the code first',
-            installedNotice: '"%s" installed, add it with "Add widget"', dashboard: 'Dashboard'
+            installedNotice: '"%s" installed, add it with "Add widget"', dashboard: 'Dashboard',
+            secretSet: 'Saved, leave empty to keep', secretEmpty: 'Not set', settingsSaved: 'Settings saved'
         },
         nl: {
             edit: 'Indeling bewerken', save: 'Opslaan', cancel: 'Annuleren', reset: 'Standaard herstellen', add: 'Widget toevoegen',
@@ -55,7 +56,8 @@
             communityWarning: 'Community-widgets zijn niet gecontroleerd. Installeer alleen widgets die je vertrouwt en lees eerst de code.',
             runsCodeWarning: 'Deze widget voert code uit op je computer, als jouw gebruiker. Lees de code hieronder voor je installeert.',
             confirmCode: 'Ik heb de code gelezen en vertrouw deze widget', confirmFirst: 'Bevestig eerst dat je de code hebt gelezen',
-            installedNotice: '"%s" geïnstalleerd, voeg hem toe via "Widget toevoegen"', dashboard: 'Dashboard'
+            installedNotice: '"%s" geïnstalleerd, voeg hem toe via "Widget toevoegen"', dashboard: 'Dashboard',
+            secretSet: 'Opgeslagen, leeg laten om te behouden', secretEmpty: 'Niet ingesteld', settingsSaved: 'Instellingen opgeslagen'
         }
     };
     const t = texts[(navigator.language || 'en').toLowerCase().startsWith('nl') ? 'nl' : 'en'];
@@ -172,6 +174,12 @@
             'if(e.source!==parent||!d||d.type!=="olh-data"||typeof window.onData!=="function")return;' +
             'try{window.onData(d.data,{ok:d.ok,error:d.error,updated:d.updated});}catch(err){console.error(err);}});' +
             'document.addEventListener("DOMContentLoaded",function(){parent.postMessage({type:"olh-ready"},"*");});' +
+            // olhAction(data) sends a request to the widget's action script, returns a Promise
+            'var olhPending={},olhNext=1;window.olhAction=function(data){return new Promise(function(resolve){' +
+            'var id=olhNext++;olhPending[id]=resolve;parent.postMessage({type:"olh-action",id:id,data:data},"*");});};' +
+            'window.addEventListener("message",function(e){var d=e.data;' +
+            'if(e.source!==parent||!d||d.type!=="olh-action-result"||!olhPending[d.id])return;' +
+            'olhPending[d.id]({ok:d.ok,error:d.error,data:d.data});delete olhPending[d.id];});' +
             '<\/script></head><body>' + html + '</body></html>';
     }
 
@@ -239,6 +247,38 @@
         Object.keys(items).forEach(function (key) {
             const item = items[key];
             if (item.frame && item.frame.contentWindow === e.source) sendData(item);
+        });
+    });
+
+    // Widgets with an action script (widget.json "action") can send requests,
+    // e.g. to switch a light; the helper runs the script, then data refreshes
+    window.addEventListener('message', function (e) {
+        if (!e.data || e.data.type !== 'olh-action') return;
+        const item = Object.keys(items).map(function (key) { return items[key]; }).filter(function (candidate) {
+            return candidate.frame && candidate.frame.contentWindow === e.source;
+        })[0];
+        if (!item) return;
+        const reply = function (result) {
+            if (item.frame.contentWindow) {
+                item.frame.contentWindow.postMessage(Object.assign({type: 'olh-action-result', id: e.data.id}, result), '*');
+            }
+        };
+        if (!item.custom.action) {
+            reply({ok: false, error: 'widget has no action script', data: null});
+            return;
+        }
+        fetch(HELPER + '/' + encodeURIComponent(item.custom.id) + '/action', {
+            method: 'POST',
+            headers: Object.assign({'Content-Type': 'application/json'}, HELPER_HEADERS),
+            body: JSON.stringify({data: e.data.data === undefined ? null : e.data.data})
+        }).then(function (r) {
+            return r.json();
+        }).catch(function () {
+            return {ok: false, error: t.helperDown, data: null};
+        }).then(function (result) {
+            reply({ok: !!result.ok, error: result.error || null, data: result.data === undefined ? null : result.data});
+            // Give the device a moment to report its new state
+            setTimeout(function () { refreshCustom(item); }, 700);
         });
     });
 
@@ -396,12 +436,15 @@
         const overlay = el('div', 'olh-overlay');
         const bar = el('div', 'olh-overlay-bar');
         bar.appendChild(el('span', 'olh-overlay-name', item.name));
-        if (item.area) {
+        if (item.area || (item.custom && (item.custom.settings || []).length)) {
             const settings = el('button', 'olh-icon-button olh-no-drag');
             settings.type = 'button';
             settings.title = t.settings;
             settings.innerHTML = '<i class="bi bi-gear"></i>';
-            settings.addEventListener('click', function () { openSettings(item); });
+            settings.addEventListener('click', function () {
+                if (item.area) openSettings(item);
+                else openCustomSettings(item);
+            });
             bar.appendChild(settings);
         }
         const hide = el('button', 'olh-icon-button olh-no-drag');
@@ -520,6 +563,8 @@
         const item = createCustomItem(manifest, {w: manifest.size.w, h: manifest.size.h, hidden: true});
         items[item.key] = item;
         showItem(item);
+        // A widget with settings (e.g. a server and token) asks for them right away
+        if ((manifest.settings || []).length) openCustomSettings(item);
     }
 
     // Upstream only knows 11 widget areas, a new widget needs a free one that allows it
@@ -906,6 +951,75 @@
             backdrop.addEventListener('click', function (e) { if (e.target === backdrop) backdrop.remove(); });
             document.body.appendChild(backdrop);
         });
+    }
+
+    // Settings of a custom widget (widget.json "settings"), stored by the helper.
+    // Secrets are write-only: the helper only says whether one is set
+    function openCustomSettings(item) {
+        const path = HELPER + '/' + encodeURIComponent(item.custom.id) + '/settings';
+        helperGet('/' + encodeURIComponent(item.custom.id) + '/settings').then(function (response) {
+            const values = response.values || {};
+            const backdrop = el('div', 'olh-modal-backdrop');
+            const modal = el('div', 'olh-modal');
+            modal.appendChild(el('h3', 'olh-modal-title', item.custom.name));
+            const form = el('div', 'olh-modal-fields olh-modal-fields-single');
+            (item.custom.settings || []).forEach(function (field) {
+                const current = values[field.name] || {};
+                const row = el('label', 'olh-field');
+                row.appendChild(el('span', 'olh-field-label', field.label));
+                const input = el('input');
+                input.type = field.type === 'secret' ? 'password' : field.type === 'url' ? 'url' : 'text';
+                input.autocomplete = field.type === 'secret' ? 'new-password' : 'off';
+                input.spellcheck = false;
+                input.maxLength = 4096;
+                if (field.type === 'secret') {
+                    input.placeholder = current.set ? t.secretSet : t.secretEmpty;
+                } else {
+                    input.value = current.value || '';
+                    input.placeholder = field.default || '';
+                }
+                input.dataset.setting = field.name;
+                row.appendChild(input);
+                if (field.help) row.appendChild(el('span', 'olh-field-help', field.help));
+                form.appendChild(row);
+            });
+            modal.appendChild(form);
+
+            const error = el('div', 'olh-field-help olh-field-error');
+            modal.appendChild(error);
+            const actions = el('div', 'olh-modal-actions');
+            const cancel = el('button', 'olh-button', t.cancel);
+            cancel.type = 'button';
+            cancel.addEventListener('click', function () { backdrop.remove(); });
+            const save = el('button', 'olh-button olh-primary', t.save);
+            save.type = 'button';
+            save.addEventListener('click', function () {
+                const body = {values: {}};
+                form.querySelectorAll('[data-setting]').forEach(function (input) {
+                    body.values[input.dataset.setting] = input.value;
+                });
+                fetch(path, {
+                    method: 'POST',
+                    headers: Object.assign({'Content-Type': 'application/json'}, HELPER_HEADERS),
+                    body: JSON.stringify(body)
+                }).then(function (r) { return r.json(); }).then(function (result) {
+                    if (!result.ok) throw new Error(result.error || t.widgetSaveFailed);
+                    backdrop.remove();
+                    notify(t.settingsSaved, 'success');
+                    refreshCustom(item);
+                }).catch(function (e) {
+                    error.textContent = e.message && e.message !== 'Failed to fetch' ? e.message : t.helperDown;
+                });
+            });
+            actions.appendChild(cancel);
+            actions.appendChild(save);
+            modal.appendChild(actions);
+            backdrop.appendChild(modal);
+            backdrop.addEventListener('click', function (e) { if (e.target === backdrop) backdrop.remove(); });
+            document.body.appendChild(backdrop);
+            const first = form.querySelector('input');
+            if (first) first.focus();
+        }).catch(function () { notify(t.helperDown, 'error'); });
     }
 
     // Outside the kiosk (any other browser window) the page shows the XENEON

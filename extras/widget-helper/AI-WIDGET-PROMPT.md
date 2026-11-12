@@ -24,11 +24,12 @@ lowercase letters, digits, "-" and "_" (max 64 characters), for example
 - widget.json  (required)
 - widget.html  (required)
 - data.py      (only for a "script" source; another language is allowed, see below)
+- action.py    (only when the widget must change something, see "Actions")
 Allowed file types: .json .html .css .js .py .sh .png .jpg .jpeg .svg .webp .md .txt.
 At most 30 files, 512 KB per file, 2 MB in total. Readable code only: nothing
 minified or obfuscated.
-After the files, tell me in short: which entries I must add to secrets.json (if
-any), which websites the widget contacts, and how to install it.
+After the files, tell me in short: which settings I must fill in (if any), which
+websites the widget contacts, and how to install it.
 
 ## widget.json
 {
@@ -56,11 +57,20 @@ any), which websites the widget contacts, and how to install it.
   - {"type": "script", "command": ["python3", "data.py"], "timeout": 10}:
     the helper runs the command in the widget folder and passes what it prints.
     command is optional and defaults to ["python3", "data.py"].
-- Secrets (API keys, tokens) never go into the widget files. Write ${NAME} in
-  the url or in a header value; the user puts NAME in their secrets.json.
+- settings (optional): fields the user fills in with the gear button after
+  adding the widget, e.g. a server address or an API key. Never put such values
+  in the widget files and never ask the user to edit a file for them:
+    "settings": [
+        {"name": "HA_URL", "label": "Server", "type": "url", "default": "http://127.0.0.1:8123"},
+        {"name": "HA_TOKEN", "label": "Token", "type": "secret", "help": "Where to find it"}
+    ]
+  name: letters, digits and "_". type: "text", "url" or "secret" (secrets are
+  never sent back to the page). label and help are shown to the user.
+  Write ${NAME} in the url or in a header value to use a setting.
   Example: "headers": {"Authorization": "Bearer ${HA_TOKEN}"}.
-  Scripts can read the same file: its path is in the environment variable
-  OLH_SECRETS_FILE (a JSON object of name -> value).
+  Scripts read the saved values from the JSON file in the environment variable
+  OLH_SETTINGS_FILE (name -> value); fields that were never saved are missing,
+  so fall back to the default. The file may not exist yet.
 
 ## widget.html
 An HTML fragment (no <html>, <head> or <body> tags) with <style> and <script>.
@@ -96,6 +106,20 @@ Look and feel (dark theme, readable from a distance on a touchscreen):
 - Large, high-contrast text, little clutter, padding of about 12-18 px. Use
   overflow: hidden and text-overflow: ellipsis so long text never breaks the card.
 
+## Actions (only when the widget must change something, e.g. switch a light)
+Add to widget.json:
+    "action": {"type": "script", "command": ["python3", "action.py"], "timeout": 15}
+In widget.html, call olhAction(request) with a JSON-serializable request. It
+returns a Promise of {ok: boolean, error: string or null, data: what the script
+printed}. Disable the control or show progress until it resolves; the widget's
+data refreshes automatically afterwards. Show result.error when ok is false.
+action.py gets the request as JSON on stdin and OLH_SETTINGS_FILE in the
+environment, prints one JSON value on success, and on failure writes the error
+to stderr and exits non-zero. The request comes from the page, so action.py must
+validate it against a fixed allowlist of operations and parameter types, and
+never pass it to a shell or use it as a command or file path. It may only do
+what the widget is meant to do. Python standard library only, like data.py.
+
 ## data.py (only for a "script" source)
 - Python 3 standard library only (no pip packages), unless I say otherwise.
   Any other language is allowed if you set "command" accordingly, e.g.
@@ -116,11 +140,11 @@ http://homeassistant.local:8123, refreshing every 30 seconds.">
 
 ## After the AI answers
 1. Create the folder `~/.config/openlinkhub-widgets/<id>/` and save the files in it.
-2. Add any secrets it mentions to `~/.config/openlinkhub-widgets/secrets.json`,
-   for example `{"HA_TOKEN": "..."}`.
-3. Open edit mode on the XENEON EDGE (or **XENEON EDGE layout** in the
+2. Open edit mode on the XENEON EDGE (or **XENEON EDGE layout** in the
    OpenLinkHub sidebar), reload the page, click **Add widget** and pick your
    widget.
+3. If the widget has settings (a server, an API key), the settings window opens
+   right away; change them later with the gear button on the widget.
 4. Does it work and do you want to share it? See
    [Share your widget](README.md#share-your-widget).
 
